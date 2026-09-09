@@ -1,0 +1,15 @@
+{
+  "name": "acs-backend",
+  "version": "1.0.0",
+  "description": "Advance Corporate Security — Node.js + Express + TypeScript API Backend",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "rimraf dist && tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": ["acs", "advance-corporate-security", "express", "typescript"],
+  "author": "Parther Technologies",
+  "license": "ISC"
+}
