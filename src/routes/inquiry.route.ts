@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { sendMail, buildEmailHtml } from "../utils/mailer";
+import { Inquiry } from "../models/Inquiry.model";
 
 export const inquiryRouter = Router();
 
@@ -7,6 +8,7 @@ inquiryRouter.post("/", async (req: Request, res: Response, next: NextFunction):
   try {
     const { name, email, phone, service, city, manpowerCount, duration, message } = req.body;
 
+    // ─── Validation ─────────────────────────────────────────
     if (!name || !email || !phone || !service) {
       res.status(400).json({
         success: false,
@@ -17,9 +19,25 @@ inquiryRouter.post("/", async (req: Request, res: Response, next: NextFunction):
 
     const recipientEmail = process.env.CONTACT_EMAIL || "advancedcorporatesecurityj@gmail.com";
 
+    // ─── Save to MongoDB Atlas ───────────────────────────────
+    const inquiry = new Inquiry({
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      service: service.trim(),
+      city: city?.trim(),
+      manpowerCount: manpowerCount ? Number(manpowerCount) : undefined,
+      duration: duration?.trim(),
+      message: message?.trim(),
+      ipAddress: req.ip || req.socket?.remoteAddress,
+    });
+    await inquiry.save();
+
+    // ─── Email to Admin ──────────────────────────────────────
     const adminHtml = buildEmailHtml(
       "New Service Inquiry",
       `
+      <p><strong>Submitted at:</strong> ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST</p>
       <table style="width:100%;border-collapse:collapse;">
         <tr><td style="padding:8px;border:1px solid #e5e7eb;background:#f8f9fa;font-weight:bold;width:35%;">Name</td><td style="padding:8px;border:1px solid #e5e7eb;">${name}</td></tr>
         <tr><td style="padding:8px;border:1px solid #e5e7eb;background:#f8f9fa;font-weight:bold;">Email</td><td style="padding:8px;border:1px solid #e5e7eb;"><a href="mailto:${email}">${email}</a></td></tr>
@@ -29,6 +47,7 @@ inquiryRouter.post("/", async (req: Request, res: Response, next: NextFunction):
         <tr><td style="padding:8px;border:1px solid #e5e7eb;background:#f8f9fa;font-weight:bold;">Manpower Count</td><td style="padding:8px;border:1px solid #e5e7eb;">${manpowerCount || "—"}</td></tr>
         <tr><td style="padding:8px;border:1px solid #e5e7eb;background:#f8f9fa;font-weight:bold;">Duration</td><td style="padding:8px;border:1px solid #e5e7eb;">${duration || "—"}</td></tr>
         <tr><td style="padding:8px;border:1px solid #e5e7eb;background:#f8f9fa;font-weight:bold;">Message</td><td style="padding:8px;border:1px solid #e5e7eb;">${message?.replace(/\n/g, "<br>") || "—"}</td></tr>
+        <tr><td style="padding:8px;border:1px solid #e5e7eb;background:#f8f9fa;font-weight:bold;">DB Record ID</td><td style="padding:8px;border:1px solid #e5e7eb;font-family:monospace;font-size:12px;">${inquiry._id}</td></tr>
       </table>
       `
     );
@@ -44,6 +63,20 @@ inquiryRouter.post("/", async (req: Request, res: Response, next: NextFunction):
       success: true,
       message: "Inquiry received. Our team will contact you within 24 hours.",
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET all inquiries (admin) ────────────────────────────
+inquiryRouter.get("/", async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const inquiries = await Inquiry.find()
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .select("-__v");
+
+    res.json({ success: true, count: inquiries.length, data: inquiries });
   } catch (err) {
     next(err);
   }

@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import mongoose from "mongoose";
 import { contactRouter } from "./routes/contact.route";
 import { inquiryRouter } from "./routes/inquiry.route";
 import { errorHandler } from "./middlewares/errorHandler";
@@ -40,11 +41,16 @@ app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 
 // ─── Health Check ─────────────────────────────────────────────
 app.get("/health", (_req, res) => {
+  const mongoState = ["disconnected", "connected", "connecting", "disconnecting"];
   res.json({
     status: "ok",
     service: "ACS Backend API",
     timestamp: new Date().toISOString(),
     version: process.env.npm_package_version || "1.0.0",
+    db: {
+      status: mongoState[mongoose.connection.readyState] || "unknown",
+      host: mongoose.connection.host || "not connected",
+    },
   });
 });
 

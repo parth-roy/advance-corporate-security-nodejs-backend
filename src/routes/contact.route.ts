@@ -1,13 +1,17 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { sendMail, buildEmailHtml } from "../utils/mailer";
+import { ContactSubmission } from "../models/ContactSubmission.model";
 
 export const contactRouter = Router();
 
 contactRouter.post("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { firstName, lastName, email, phone, organization, service, city, message } = req.body;
+    const {
+      firstName, lastName, email, phone,
+      organization, service, city, message,
+    } = req.body;
 
-    // Basic validation
+    // ─── Validation ─────────────────────────────────────────
     if (!firstName || !lastName || !email || !phone || !message) {
       res.status(400).json({
         success: false,
@@ -17,12 +21,28 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
     }
 
     const recipientEmail = process.env.CONTACT_EMAIL || "advancedcorporatesecurityj@gmail.com";
-    const fullName = `${firstName} ${lastName}`;
+    const fullName = `${firstName.trim()} ${lastName.trim()}`;
 
-    // Email to ACS admin
+    // ─── Save to MongoDB Atlas ───────────────────────────────
+    const submission = new ContactSubmission({
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      organization: organization?.trim(),
+      service: service?.trim(),
+      city: city?.trim(),
+      message: message.trim(),
+      source: req.headers.referer || "website",
+      ipAddress: req.ip || req.socket?.remoteAddress,
+    });
+    await submission.save();
+
+    // ─── Email to ACS Admin ──────────────────────────────────
     const adminHtml = buildEmailHtml(
       "New Contact Form Submission",
       `
+      <p><strong>Submitted at:</strong> ${new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} IST</p>
       <table style="width:100%;border-collapse:collapse;">
         <tr><td style="padding:8px;border:1px solid #e5e7eb;background:#f8f9fa;font-weight:bold;width:30%;">Name</td><td style="padding:8px;border:1px solid #e5e7eb;">${fullName}</td></tr>
         <tr><td style="padding:8px;border:1px solid #e5e7eb;background:#f8f9fa;font-weight:bold;">Email</td><td style="padding:8px;border:1px solid #e5e7eb;"><a href="mailto:${email}">${email}</a></td></tr>
@@ -31,11 +51,12 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
         <tr><td style="padding:8px;border:1px solid #e5e7eb;background:#f8f9fa;font-weight:bold;">Service</td><td style="padding:8px;border:1px solid #e5e7eb;">${service || "—"}</td></tr>
         <tr><td style="padding:8px;border:1px solid #e5e7eb;background:#f8f9fa;font-weight:bold;">City</td><td style="padding:8px;border:1px solid #e5e7eb;">${city || "—"}</td></tr>
         <tr><td style="padding:8px;border:1px solid #e5e7eb;background:#f8f9fa;font-weight:bold;">Message</td><td style="padding:8px;border:1px solid #e5e7eb;">${message.replace(/\n/g, "<br>")}</td></tr>
+        <tr><td style="padding:8px;border:1px solid #e5e7eb;background:#f8f9fa;font-weight:bold;">DB Record ID</td><td style="padding:8px;border:1px solid #e5e7eb;font-family:monospace;font-size:12px;">${submission._id}</td></tr>
       </table>
       `
     );
 
-    // Auto-reply to the user
+    // ─── Auto-reply to User ──────────────────────────────────
     const userHtml = buildEmailHtml(
       `Thank you, ${firstName}!`,
       `
@@ -48,12 +69,12 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
         <li><strong>Your Phone:</strong> ${phone}</li>
       </ul>
       <p>For urgent matters, you can also reach us at:</p>
-      <p style="color:#c8993a;font-weight:bold;">${process.env.CONTACT_PHONE || "+91-XXXXXXXXXX"}</p>
-      <p>Warm regards,<br><strong>Team ACS</strong></p>
+      <p style="color:#c8993a;font-weight:bold;">${process.env.CONTACT_PHONE || "+91-9831250270"}</p>
+      <p>Warm regards,<br><strong>Team ACS</strong><br><em>Advance Corporate Services</em></p>
       `
     );
 
-    // Send both emails in parallel
+    // ─── Send both emails in parallel ────────────────────────
     await Promise.all([
       sendMail({
         to: recipientEmail,
@@ -72,6 +93,20 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
       success: true,
       message: "Your message has been sent successfully. We will respond within 24 hours.",
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── GET all submissions (for admin use — add auth middleware later) ──
+contactRouter.get("/", async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const submissions = await ContactSubmission.find()
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .select("-__v");
+
+    res.json({ success: true, count: submissions.length, data: submissions });
   } catch (err) {
     next(err);
   }
