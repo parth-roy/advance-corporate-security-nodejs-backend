@@ -69,7 +69,7 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
         <li><strong>Your Phone:</strong> ${phone}</li>
       </ul>
       <p>For urgent matters, you can also reach us at:</p>
-      <p style="color:#c8993a;font-weight:bold;">${process.env.CONTACT_PHONE || "+91-9831250270"}</p>
+      <p style="color:#c8993a;font-weight:bold;">${process.env.CONTACT_PHONE || "+91 93399 88999 / +91 79801 47044 / +91 94770 06681"}</p>
       <p>Warm regards,<br><strong>Team ACS</strong><br><em>Advance Corporate Services</em></p>
       `
     );
