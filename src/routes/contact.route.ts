@@ -20,7 +20,7 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
       return;
     }
 
-    const recipientEmail = process.env.CONTACT_EMAIL || "advancedcorporatesecurityj@gmail.com";
+    const recipientEmail = process.env.CONTACT_EMAIL || "admin@advancecorporatesecurity.com";
     const fullName = `${firstName.trim()} ${lastName.trim()}`;
 
     // ─── Save to MongoDB Atlas ───────────────────────────────
@@ -61,7 +61,7 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
       `Thank you, ${firstName}!`,
       `
       <p>Dear ${firstName},</p>
-      <p>Thank you for contacting <strong>Advance Corporate Services</strong>. We have received your enquiry and our team will get back to you within <strong>24 hours</strong>.</p>
+      <p>Thank you for contacting <strong>Advance Corporate Security</strong>. We have received your enquiry and our team will get back to you within <strong>24 hours</strong>.</p>
       <p>Here is a summary of your submission:</p>
       <ul style="color:#374151;line-height:1.8;">
         <li><strong>Service Requested:</strong> ${service || "General Enquiry"}</li>
@@ -70,7 +70,7 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
       </ul>
       <p>For urgent matters, you can also reach us at:</p>
       <p style="color:#c8993a;font-weight:bold;">${process.env.CONTACT_PHONE || "+91 93399 88999 / +91 79801 47044 / +91 94770 06681"}</p>
-      <p>Warm regards,<br><strong>Team ACS</strong><br><em>Advance Corporate Services</em></p>
+      <p>Warm regards,<br><strong>Team ACS</strong><br><em>Advance Corporate Security</em></p>
       `
     );
 
@@ -84,7 +84,7 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
       }),
       sendMail({
         to: email,
-        subject: "Thank you for contacting Advance Corporate Services",
+        subject: "Thank you for contacting Advance Corporate Security",
         html: userHtml,
       }),
     ]);

@@ -17,7 +17,7 @@ export interface MailOptions {
 
 export async function sendMail(options: MailOptions): Promise<void> {
   await transporter.sendMail({
-    from: `"Advance Corporate Services" <${process.env.SMTP_USER}>`,
+    from: `"Advance Corporate Security" <${process.env.SMTP_USER}>`,
     to: options.to,
     subject: options.subject,
     html: options.html,
@@ -39,7 +39,7 @@ export function buildEmailHtml(title: string, body: string): string {
   <div style="max-width:600px;margin:30px auto;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,0.1);">
     <!-- Header -->
     <div style="background:#0b1f3f;padding:24px 32px;text-align:center;">
-      <h1 style="color:#c8993a;margin:0;font-size:20px;letter-spacing:1px;">ADVANCE CORPORATE SERVICES</h1>
+      <h1 style="color:#c8993a;margin:0;font-size:20px;letter-spacing:1px;">ADVANCE CORPORATE SECURITY</h1>
       <p style="color:#9ca3af;margin:4px 0 0;font-size:12px;letter-spacing:2px;text-transform:uppercase;">ISO 9001:2015 Certified</p>
     </div>
     <!-- Body -->
@@ -49,7 +49,7 @@ export function buildEmailHtml(title: string, body: string): string {
     </div>
     <!-- Footer -->
     <div style="background:#f8f9fa;padding:20px 32px;border-top:1px solid #e5e7eb;text-align:center;">
-      <p style="color:#6b7280;font-size:12px;margin:0;">Advance Corporate Services | Barrackpore, Kolkata, West Bengal</p>
+      <p style="color:#6b7280;font-size:12px;margin:0;">Advance Corporate Security | Barrackpore, Kolkata, West Bengal</p>
       <p style="color:#6b7280;font-size:12px;margin:4px 0 0;">
         <a href="https://advancecorporatesecurity.com" style="color:#c8993a;">advancecorporatesecurity.com</a>
       </p>
