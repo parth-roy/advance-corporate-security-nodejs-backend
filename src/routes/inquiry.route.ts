@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { sendMail, buildEmailHtml } from "../utils/mailer";
 import { Inquiry } from "../models/Inquiry.model";
+import { appendToGoogleSheet } from "../utils/googleSheets";
 
 export const inquiryRouter = Router();
 
@@ -32,6 +33,23 @@ inquiryRouter.post("/", async (req: Request, res: Response, next: NextFunction):
       ipAddress: req.ip || req.socket?.remoteAddress,
     });
     await inquiry.save();
+
+    // ─── Sync to Google Sheet (Zero-GCP Apps Script Webhook) ──
+    appendToGoogleSheet({
+      type: "inquiry",
+      id: inquiry._id.toString(),
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      service: service.trim(),
+      city: city?.trim() || "",
+      manpowerCount: manpowerCount ? Number(manpowerCount) : undefined,
+      duration: duration?.trim() || "",
+      message: message?.trim() || "",
+      source: req.headers.referer || "website",
+    }).catch((err) => {
+      console.error("[Inquiry Route] Google Sheets background sync error:", err?.message || err);
+    });
 
     // ─── Email to Admin ──────────────────────────────────────
     const adminHtml = buildEmailHtml(

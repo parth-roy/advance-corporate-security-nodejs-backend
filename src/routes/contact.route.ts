@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { sendMail, buildEmailHtml } from "../utils/mailer";
 import { ContactSubmission } from "../models/ContactSubmission.model";
+import { appendToGoogleSheet } from "../utils/googleSheets";
 
 export const contactRouter = Router();
 
@@ -37,6 +38,24 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
       ipAddress: req.ip || req.socket?.remoteAddress,
     });
     await submission.save();
+
+    // ─── Sync to Google Sheet (Zero-GCP Apps Script Webhook) ──
+    appendToGoogleSheet({
+      type: "contact",
+      id: submission._id.toString(),
+      name: fullName,
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      organization: organization?.trim() || "",
+      service: service?.trim() || "",
+      city: city?.trim() || "",
+      message: message.trim(),
+      source: req.headers.referer || "website",
+    }).catch((err) => {
+      console.error("[Contact Route] Google Sheets background sync error:", err?.message || err);
+    });
 
     // ─── Email to ACS Admin ──────────────────────────────────
     const adminHtml = buildEmailHtml(
