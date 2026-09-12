@@ -34,24 +34,13 @@ inquiryRouter.post("/", async (req: Request, res: Response, next: NextFunction):
     });
     await inquiry.save();
 
-    // ─── Sync to Google Sheet (Zero-GCP Apps Script Webhook) ──
-    appendToGoogleSheet({
-      type: "inquiry",
-      id: inquiry._id.toString(),
-      name: name.trim(),
-      email: email.trim().toLowerCase(),
-      phone: phone.trim(),
-      service: service.trim(),
-      city: city?.trim() || "",
-      manpowerCount: manpowerCount ? Number(manpowerCount) : undefined,
-      duration: duration?.trim() || "",
-      message: message?.trim() || "",
-      source: req.headers.referer || "website",
-    }).catch((err) => {
-      console.error("[Inquiry Route] Google Sheets background sync error:", err?.message || err);
+    // ─── 2. Instant Response to Client (< 200ms) ───────────
+    res.status(200).json({
+      success: true,
+      message: "Inquiry received. Our team will contact you within 24 hours.",
+      data: { id: inquiry._id },
     });
 
-    // ─── Email to Admin ──────────────────────────────────────
     const adminHtml = buildEmailHtml(
       "New Service Inquiry",
       `
@@ -70,16 +59,30 @@ inquiryRouter.post("/", async (req: Request, res: Response, next: NextFunction):
       `
     );
 
-    await sendMail({
-      to: recipientEmail,
-      subject: `[ACS Inquiry] ${service} — ${name} — ${city || "Location TBD"}`,
-      html: adminHtml,
-      replyTo: email,
-    });
+    // ─── 3. Background Async Tasks (Google Sheet + Email) ───
+    Promise.allSettled([
+      appendToGoogleSheet({
+        type: "inquiry",
+        id: inquiry._id.toString(),
+        name: name.trim(),
+        email: email.trim().toLowerCase(),
+        phone: phone.trim(),
+        service: service.trim(),
+        city: city?.trim() || "",
+        manpowerCount: manpowerCount ? Number(manpowerCount) : undefined,
+        duration: duration?.trim() || "",
+        message: message?.trim() || "",
+        source: req.headers.referer || "website",
+      }),
 
-    res.status(200).json({
-      success: true,
-      message: "Inquiry received. Our team will contact you within 24 hours.",
+      sendMail({
+        to: recipientEmail,
+        subject: `[ACS Inquiry] ${service} — ${name} — ${city || "Location TBD"}`,
+        html: adminHtml,
+        replyTo: email,
+      }),
+    ]).catch((bgErr) => {
+      console.error("[Inquiry Route] Background tasks error:", bgErr);
     });
   } catch (err) {
     next(err);
