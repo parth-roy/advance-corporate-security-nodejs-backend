@@ -55,7 +55,7 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
       return;
     }
 
-    const recipientEmail = process.env.CONTACT_EMAIL || "admin@advancecorporatesecurity.com";
+    const recipientEmail = process.env.CONTACT_EMAIL || "advancedsecurityj@gmail.com";
     const fullName = `${cleanFirst} ${cleanLast !== "—" ? cleanLast : ""}`.trim();
 
     // ─── 1. Save to MongoDB Atlas (Persistent Storage) ───────
