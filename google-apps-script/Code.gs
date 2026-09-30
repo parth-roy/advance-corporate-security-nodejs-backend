@@ -102,6 +102,18 @@ function doPost(e) {
         "New / Pending Review"
       ];
 
+      var recordId = data.id || data.applicationId || "";
+      if (isDuplicateRecord(sheetApps, recordId, data.applicantEmail || data.email, data.applicantPhone || data.phone)) {
+        return ContentService.createTextOutput(
+          JSON.stringify({
+            status: "success",
+            message: "Duplicate job application ignored (already logged)",
+            tab: sheetApps.getName(),
+            id: recordId
+          })
+        ).setMimeType(ContentService.MimeType.JSON);
+      }
+
       sheetApps.appendRow(appRowData);
       formatLastRow(sheetApps);
 
@@ -146,6 +158,18 @@ function doPost(e) {
         data.id || "",
         data.source || "Website"
       ];
+
+      var inquiryId = data.id || data.inquiryId || "";
+      if (isDuplicateRecord(sheetInquiry, inquiryId, data.email, data.phone)) {
+        return ContentService.createTextOutput(
+          JSON.stringify({
+            status: "success",
+            message: "Duplicate inquiry ignored (already recorded)",
+            tab: sheetInquiry.getName(),
+            id: inquiryId
+          })
+        ).setMimeType(ContentService.MimeType.JSON);
+      }
 
       sheetInquiry.appendRow(rowInquiry);
       formatLastRow(sheetInquiry);
@@ -220,6 +244,18 @@ function doPost(e) {
         data.source || "ACS Web Portal"
       ];
 
+      var jobId = data.id || data._id || "";
+      if (isDuplicateRecord(sheetJobs, jobId, "", "")) {
+        return ContentService.createTextOutput(
+          JSON.stringify({
+            status: "success",
+            message: "Duplicate job post ignored (already recorded)",
+            tab: sheetJobs.getName(),
+            id: jobId
+          })
+        ).setMimeType(ContentService.MimeType.JSON);
+      }
+
       sheetJobs.appendRow(jobRowData);
       formatLastRow(sheetJobs);
 
@@ -264,6 +300,18 @@ function doPost(e) {
         data.id || "",
         data.source || "Website"
       ];
+
+      var contactId = data.id || data.leadId || "";
+      if (isDuplicateRecord(sheetContact, contactId, data.email, data.phone)) {
+        return ContentService.createTextOutput(
+          JSON.stringify({
+            status: "success",
+            message: "Duplicate contact lead ignored (already recorded)",
+            tab: sheetContact.getName(),
+            id: contactId
+          })
+        ).setMimeType(ContentService.MimeType.JSON);
+      }
 
       sheetContact.appendRow(rowContact);
       formatLastRow(sheetContact);
@@ -387,3 +435,38 @@ function formatLastRow(sheet) {
     }
   }
 }
+
+// ─── Helper: Prevent Duplicate Rows (ID & Contact check) ──────
+function isDuplicateRecord(sheet, uniqueId, email, phone) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return false;
+
+  var checkCount = Math.min(25, lastRow - 1);
+  var startRow = lastRow - checkCount + 1;
+  var numCols = sheet.getLastColumn();
+  var values = sheet.getRange(startRow, 1, checkCount, numCols).getValues();
+
+  var cleanEmail = (email || "").toLowerCase().trim();
+  var cleanPhone = (phone || "").replace(/\D/g, "");
+
+  for (var i = values.length - 1; i >= 0; i--) {
+    var row = values[i];
+    var rowStr = row.join(" ");
+
+    // Check if unique ID matches (e.g. app-1790..., lead-1790...)
+    if (uniqueId && uniqueId.length > 5 && rowStr.indexOf(uniqueId) !== -1) {
+      return true;
+    }
+
+    // Check if identical email and phone was already submitted in recent rows
+    if (cleanEmail && cleanPhone && cleanPhone.length >= 10) {
+      var rowLower = rowStr.toLowerCase();
+      if (rowLower.indexOf(cleanEmail) !== -1 && rowStr.indexOf(cleanPhone) !== -1) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
