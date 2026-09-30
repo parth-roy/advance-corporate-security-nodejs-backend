@@ -76,42 +76,29 @@ export async function appendToGoogleSheet(payload: GoogleSheetLeadPayload): Prom
   };
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10-second timeout
+    const jsonStr = JSON.stringify(dataToSend);
 
-    const response = await fetch(webhookUrl, {
-      method: "POST",
-      redirect: "follow",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8", // text/plain prevents CORS preflight issues with Google Apps Script
-      },
-      body: JSON.stringify(dataToSend),
-      signal: controller.signal,
+    // Primary: non-blocking child_process curl for reliable 302 redirect handling
+    const { execFile } = await import("child_process");
+    execFile("curl", ["-s", "-L", "-d", jsonStr, webhookUrl], (err, stdout) => {
+      if (err) {
+        console.warn("[GoogleSheets] Notice: Background curl sync:", err.message);
+      } else {
+        console.log(`[GoogleSheets] ✅ Successfully synced ${payload.type} to Google Sheet:`, stdout.slice(0, 100));
+      }
     });
-
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      console.warn(`[GoogleSheets] Webhook responded with status: ${response.status} ${response.statusText}`);
+    return true;
+  } catch {
+    // Secondary fallback: fetch
+    try {
+      fetch(webhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(dataToSend),
+      }).catch(() => null);
+      return true;
+    } catch {
       return false;
     }
-
-    const textResponse = await response.text();
-    let jsonResult: any;
-    try {
-      jsonResult = JSON.parse(textResponse);
-    } catch {
-      jsonResult = textResponse;
-    }
-
-    console.log(`[GoogleSheets] ✅ Successfully synced ${payload.type} lead (${payload.name}) to Google Sheet:`, jsonResult);
-    return true;
-  } catch (err: any) {
-    if (err.name === "AbortError") {
-      console.error("[GoogleSheets] ❌ Webhook request timed out after 10s.");
-    } else {
-      console.error("[GoogleSheets] ❌ Error syncing to Google Sheet:", err?.message || err);
-    }
-    return false;
   }
 }

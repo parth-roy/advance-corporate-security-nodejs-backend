@@ -2,14 +2,18 @@
  * ============================================================
  * ADVANCE CORPORATE SECURITY (ACS) — UNIFIED GOOGLE SHEETS WEBHOOK
  * Multi-Tab Sync:
- *   1. "Contact Leads"
- *   2. "Service Inquiries"
- *   3. "job applications" (Candidate applications from Careers hub)
+ *   1. "job applications" (Candidate applications from Careers hub)
+ *   2. "Service Inquiries" (Client service quotes)
+ *   3. "Contact Leads" (General contact queries)
  *   4. "Posted Jobs" (Optional job postings from /post-job)
  * ============================================================
+ * Target Spreadsheet: "ACS-leads" (ID: 1jDNNjOb7xe1Dvqs08buVIgH6RPLtpSVBUYJup7pH-3w)
  * (Zero GCP / Zero Google Cloud Console / Zero Monthly Cost)
  * ============================================================
  */
+
+// Fallback Spreadsheet ID from ACS-leads sheet URL:
+var SPREADSHEET_ID = "1jDNNjOb7xe1Dvqs08buVIgH6RPLtpSVBUYJup7pH-3w";
 
 // ─── POST Webhook Handler ────────────────────────────────────
 function doPost(e) {
@@ -24,9 +28,30 @@ function doPost(e) {
   }
 
   try {
+    // 1. Resolve Active Spreadsheet (Container-bound or by explicit ID)
+    var ss = null;
+    try {
+      ss = SpreadsheetApp.getActiveSpreadsheet();
+    } catch (e) {}
+
+    if (!ss) {
+      try {
+        ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+      } catch (e) {}
+    }
+
+    if (!ss) {
+      return ContentService.createTextOutput(
+        JSON.stringify({
+          status: "error",
+          message: "Could not open ACS-leads spreadsheet. Please verify Spreadsheet ID."
+        })
+      ).setMimeType(ContentService.MimeType.JSON);
+    }
+
+    // 2. Parse Incoming Payload
     var rawContent = e.postData.contents;
     var data = JSON.parse(rawContent);
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
 
     var timestamp =
       data.submittedAt ||
@@ -35,7 +60,7 @@ function doPost(e) {
 
     // ─────────────────────────────────────────────────────────
     // TAB 1: Job Applications (Candidates applying via Careers)
-    // Matches existing "job applications" or "Job Applications" tab
+    // Matches existing "job applications" tab from Image 3
     // ─────────────────────────────────────────────────────────
     if (
       type === "job_application" ||
@@ -65,7 +90,7 @@ function doPost(e) {
         data.jobTitle || "General Application",
         data.jobCity || data.city || "Pan-India",
         data.applicantName || data.name || "",
-        "'" + (data.applicantPhone || data.phone || ""), // prepended apostrophe prevents formula/format issues
+        "'" + (data.applicantPhone || data.phone || ""), // Prepend apostrophe to preserve phone digits
         data.applicantEmail || data.email || "",
         data.applicantCity || data.city || "—",
         data.applicantExperience || data.experience || "Fresher",
@@ -83,9 +108,10 @@ function doPost(e) {
       return ContentService.createTextOutput(
         JSON.stringify({
           status: "success",
-          message: "Job application logged in 'job applications' sheet",
+          message: "Job application successfully logged in 'job applications' tab",
           tab: sheetApps.getName(),
-          applicant: data.applicantName || data.name
+          applicant: data.applicantName || data.name,
+          job: data.jobTitle
         })
       ).setMimeType(ContentService.MimeType.JSON);
 
@@ -127,7 +153,7 @@ function doPost(e) {
       return ContentService.createTextOutput(
         JSON.stringify({
           status: "success",
-          message: "Service inquiry recorded in 'Service Inquiries' sheet",
+          message: "Service inquiry recorded in 'Service Inquiries' tab",
           tab: sheetInquiry.getName()
         })
       ).setMimeType(ContentService.MimeType.JSON);
@@ -200,7 +226,7 @@ function doPost(e) {
       return ContentService.createTextOutput(
         JSON.stringify({
           status: "success",
-          message: "Job post recorded in 'Posted Jobs' sheet",
+          message: "Job post recorded in 'Posted Jobs' tab",
           tab: sheetJobs.getName()
         })
       ).setMimeType(ContentService.MimeType.JSON);
@@ -245,7 +271,7 @@ function doPost(e) {
       return ContentService.createTextOutput(
         JSON.stringify({
           status: "success",
-          message: "Contact lead recorded in 'Contact Leads' sheet",
+          message: "Contact lead recorded in 'Contact Leads' tab",
           tab: sheetContact.getName()
         })
       ).setMimeType(ContentService.MimeType.JSON);
@@ -267,7 +293,8 @@ function doGet(e) {
       service: "Advance Corporate Security (ACS) Multi-Tab Webhook",
       timestamp:
         Utilities.formatDate(new Date(), "Asia/Kolkata", "dd/MM/yyyy, hh:mm:ss a") + " IST",
-      supportedTabs: ["Contact Leads", "Service Inquiries", "job applications", "Posted Jobs"],
+      spreadsheetId: SPREADSHEET_ID,
+      supportedTabs: ["job applications", "Service Inquiries", "Contact Leads", "Posted Jobs"],
       message: "Webhook is live and ready to receive submissions."
     })
   ).setMimeType(ContentService.MimeType.JSON);
