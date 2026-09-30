@@ -55,50 +55,13 @@ export interface GoogleSheetLeadPayload {
 }
 
 /**
- * Sends lead data to Google Sheets via Google Apps Script Webhook.
- * Runs asynchronously and fails gracefully without blocking the client response.
+ * Google Sheets sync is handled exclusively by the Next.js API layer (src/lib/sheetsSync.ts).
+ * This backend function is intentionally disabled to prevent duplicate rows
+ * when both Next.js (port 3000) and Node.js backend (port 4000) are running simultaneously.
+ *
+ * DO NOT re-enable this function — the Next.js layer dispatches once per request.
  */
-export async function appendToGoogleSheet(payload: GoogleSheetLeadPayload): Promise<boolean> {
-  const webhookUrl = process.env.GOOGLE_SHEETS_WEBHOOK_URL?.trim();
-
-  if (!webhookUrl || webhookUrl === "" || webhookUrl.includes("YOUR_GOOGLE_APPS_SCRIPT_URL")) {
-    console.log("[GoogleSheets] Notice: GOOGLE_SHEETS_WEBHOOK_URL is not configured in .env. Skipping Google Sheet sync.");
-    return false;
-  }
-
-  const timestamp =
-    payload.submittedAt ||
-    new Date().toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) + " IST";
-
-  const dataToSend = {
-    ...payload,
-    submittedAt: timestamp,
-  };
-
-  try {
-    const jsonStr = JSON.stringify(dataToSend);
-
-    // Primary: non-blocking child_process curl for reliable 302 redirect handling
-    const { execFile } = await import("child_process");
-    execFile("curl", ["-s", "-L", "-d", jsonStr, webhookUrl], (err, stdout) => {
-      if (err) {
-        console.warn("[GoogleSheets] Notice: Background curl sync:", err.message);
-      } else {
-        console.log(`[GoogleSheets] ✅ Successfully synced ${payload.type} to Google Sheet:`, stdout.slice(0, 100));
-      }
-    });
-    return true;
-  } catch {
-    // Secondary fallback: fetch
-    try {
-      fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(dataToSend),
-      }).catch(() => null);
-      return true;
-    } catch {
-      return false;
-    }
-  }
+export async function appendToGoogleSheet(_payload: GoogleSheetLeadPayload): Promise<boolean> {
+  // Disabled: Next.js API routes handle all Google Sheets syncing.
+  return false;
 }
