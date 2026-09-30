@@ -39,7 +39,106 @@ function doPost(e) {
     var timestamp = data.submittedAt || Utilities.formatDate(new Date(), "Asia/Kolkata", "dd/MM/yyyy, hh:mm:ss a") + " IST";
     var type = (data.type || "contact").toLowerCase();
 
-    if (type === "inquiry") {
+    if (type === "job_post") {
+      // ─── Tab: Posted Jobs ──────────────────────────────────
+      var sheetJobs = getOrCreateSheet(ss, "Posted Jobs", [
+        "Date & Time",
+        "Job Title",
+        "Category",
+        "City",
+        "Locality",
+        "Work Location Type",
+        "Vacancies",
+        "Job Type",
+        "Contractual",
+        "Salary Range",
+        "Incentives",
+        "Shift",
+        "Working Days",
+        "Deposit Required",
+        "Deposit Details",
+        "Gender",
+        "Qualification",
+        "Experience",
+        "Skills Required",
+        "Assets Needed",
+        "Documents Required",
+        "Job Description",
+        "DB Record ID",
+        "Source"
+      ]);
+
+      var salaryStr = (data.salaryMin ? "₹" + Number(data.salaryMin).toLocaleString() : "") + 
+                      (data.salaryMax ? " - ₹" + Number(data.salaryMax).toLocaleString() + " / month" : "");
+
+      var jobRowData = [
+        timestamp,
+        data.jobTitle || data.title || "",
+        data.jobCategory || data.category || "",
+        data.city || "",
+        data.locality || "",
+        data.workLocationType || "Work from Office",
+        data.vacancy || "",
+        data.jobType || "Full-time",
+        data.isContractual ? "Yes (Contractual)" : "No",
+        salaryStr,
+        data.incentives || "None",
+        data.shift || "Day",
+        data.workingDays || "6 Days Working",
+        data.requiresDeposit ? "Yes" : "No",
+        data.depositDetails || "",
+        data.gender || "Any",
+        data.qualification || "",
+        data.experience || "",
+        data.skills || "",
+        data.assetsNeeded || "",
+        data.documentsRequired || "",
+        data.description || "",
+        data.id || "",
+        data.source || "ACS Web Portal"
+      ];
+
+      sheetJobs.appendRow(jobRowData);
+      formatLastRow(sheetJobs);
+
+    } else if (type === "job_application") {
+      // ─── Tab: Job Applications ────────────────────────────
+      var sheetApps = getOrCreateSheet(ss, "Job Applications", [
+        "Date & Time",
+        "Job Applied For",
+        "Job City",
+        "Applicant Name",
+        "Phone Number",
+        "Email Address",
+        "Applicant City",
+        "Total Experience",
+        "Qualification",
+        "Notes / Message",
+        "Job ID",
+        "DB Application ID",
+        "Source"
+      ]);
+
+      var appRowData = [
+        timestamp,
+        data.jobTitle || "General Application",
+        data.jobCity || data.city || "",
+        data.applicantName || data.name || "",
+        "'" + (data.applicantPhone || data.phone || ""),
+        data.applicantEmail || data.email || "",
+        data.applicantCity || data.city || "",
+        data.applicantExperience || "Fresher",
+        data.applicantQualification || "",
+        data.message || "",
+        data.jobId || "",
+        data.id || "",
+        data.source || "Careers Page"
+      ];
+
+      sheetApps.appendRow(appRowData);
+      formatLastRow(sheetApps);
+
+    } else if (type === "inquiry") {
       // ─── Tab: Service Inquiries ───────────────────────────
       var sheetInquiry = getOrCreateSheet(ss, "Service Inquiries", [
         "Date & Time",

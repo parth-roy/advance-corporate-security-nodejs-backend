@@ -4,13 +4,13 @@
 // ============================================================
 
 export interface GoogleSheetLeadPayload {
-  type: "contact" | "inquiry";
+  type: "contact" | "inquiry" | "job_post" | "job_application";
   id?: string;
-  name: string;
+  name?: string;
   firstName?: string;
   lastName?: string;
-  email: string;
-  phone: string;
+  email?: string;
+  phone?: string;
   organization?: string;
   service?: string;
   city?: string;
@@ -19,6 +19,39 @@ export interface GoogleSheetLeadPayload {
   message?: string;
   source?: string;
   submittedAt?: string;
+
+  // Additional fields for Job Postings
+  jobTitle?: string;
+  jobCategory?: string;
+  vacancy?: string | number;
+  jobType?: string;
+  isContractual?: boolean;
+  workLocationType?: string;
+  locality?: string;
+  salaryMin?: number;
+  salaryMax?: number;
+  incentives?: string;
+  benefits?: string;
+  shift?: string;
+  workingDays?: string;
+  requiresDeposit?: boolean;
+  depositDetails?: string;
+  gender?: string;
+  qualification?: string;
+  experience?: string;
+  skills?: string;
+  assetsNeeded?: string;
+  documentsRequired?: string;
+  description?: string;
+
+  // Additional fields for Job Applications
+  applicantName?: string;
+  applicantPhone?: string;
+  applicantEmail?: string;
+  applicantCity?: string;
+  applicantExperience?: string;
+  applicantQualification?: string;
+  jobId?: string;
 }
 
 /**
