@@ -6,6 +6,7 @@ import mongoose from "mongoose";
 import { contactRouter } from "./routes/contact.route";
 import { inquiryRouter } from "./routes/inquiry.route";
 import { whatsappRouter } from "./routes/whatsapp.route";
+import { jobsRouter } from "./routes/jobs.route";
 import { errorHandler } from "./middlewares/errorHandler";
 
 const app = express();
@@ -60,6 +61,7 @@ app.use("/api/contact", contactRouter);
 app.use("/api/inquiry", inquiryRouter);
 app.use("/api/whatsapp-log", whatsappRouter);
 app.use("/api/whatsapp", whatsappRouter);
+app.use("/api/jobs", jobsRouter);
 
 // ─── 404 Handler ──────────────────────────────────────────────
 app.use((_req, res) => {
