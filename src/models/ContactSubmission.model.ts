@@ -2,6 +2,7 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 
 // ─── Interface ─────────────────────────────────────────────
 export interface IContactSubmission extends Document {
+  leadId?: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -11,6 +12,9 @@ export interface IContactSubmission extends Document {
   city?: string;
   message: string;
   status: "new" | "read" | "replied" | "closed";
+  assignedOwner?: string;
+  ownerDesk?: string;
+  slaTarget?: string;
   source: string; // URL or page slug
   ipAddress?: string;
   createdAt: Date;
@@ -20,6 +24,7 @@ export interface IContactSubmission extends Document {
 // ─── Schema ────────────────────────────────────────────────
 const ContactSubmissionSchema = new Schema<IContactSubmission>(
   {
+    leadId:       { type: String, trim: true, index: true },
     firstName:    { type: String, required: true, trim: true, maxlength: 100 },
     lastName:     { type: String, required: true, trim: true, maxlength: 100 },
     email:        { type: String, required: true, trim: true, lowercase: true, maxlength: 254 },
@@ -29,6 +34,9 @@ const ContactSubmissionSchema = new Schema<IContactSubmission>(
     city:         { type: String, trim: true, maxlength: 100 },
     message:      { type: String, required: true, trim: true, maxlength: 5000 },
     status:       { type: String, enum: ["new", "read", "replied", "closed"], default: "new" },
+    assignedOwner:{ type: String, trim: true },
+    ownerDesk:    { type: String, trim: true },
+    slaTarget:    { type: String, trim: true },
     source:       { type: String, default: "website", trim: true },
     ipAddress:    { type: String },
   },

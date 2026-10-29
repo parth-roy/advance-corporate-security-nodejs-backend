@@ -10,6 +10,7 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
     const {
       name, firstName, lastName, email, phone,
       organization, service, city, message,
+      leadId, assignedOwner, ownerDesk, slaTarget,
     } = req.body;
 
     // ─── Flexible Name Extraction ────────────────────────────
@@ -60,6 +61,7 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
 
     // ─── 1. Save to MongoDB Atlas (Persistent Storage) ───────
     const submission = new ContactSubmission({
+      leadId: leadId?.trim() || undefined,
       firstName: cleanFirst,
       lastName: cleanLast,
       email: cleanEmail,
@@ -68,6 +70,9 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
       service: service?.trim() || "General Enquiry",
       city: city?.trim() || "",
       message: cleanMessage,
+      assignedOwner: assignedOwner?.trim() || undefined,
+      ownerDesk: ownerDesk?.trim() || undefined,
+      slaTarget: slaTarget?.trim() || undefined,
       source: req.headers.referer || "website",
       ipAddress: req.ip || req.socket?.remoteAddress,
     });
@@ -79,8 +84,12 @@ contactRouter.post("/", async (req: Request, res: Response, next: NextFunction):
       message: "Your message has been sent successfully. We will respond within 24 hours.",
       data: {
         id: submission._id,
+        leadId: leadId || submission._id.toString(),
         name: fullName,
         email: cleanEmail,
+        assignedOwner,
+        ownerDesk,
+        slaTarget,
       },
     });
 

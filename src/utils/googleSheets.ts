@@ -20,6 +20,20 @@ export interface GoogleSheetLeadPayload {
   source?: string;
   submittedAt?: string;
 
+  // Stable Taxonomy IDs & Enterprise Lifecycle (Blueprint §13)
+  opportunityId?: string;
+  clientId?: string;
+  branchId?: string;
+  contractId?: string;
+  deploymentId?: string;
+  stage?: string;
+  assignedOwner?: string;
+  followUpDeadline?: string;
+  siteType?: string;
+  numberOfPosts?: string;
+  shiftCoverage?: string;
+  startDate?: string;
+
   // Additional fields for Job Postings
   jobTitle?: string;
   jobCategory?: string;

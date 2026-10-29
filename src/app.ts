@@ -59,6 +59,7 @@ app.get("/health", (_req, res) => {
 // ─── Routes ───────────────────────────────────────────────────
 app.use("/api/contact", contactRouter);
 app.use("/api/inquiry", inquiryRouter);
+app.use("/api/inquiries", inquiryRouter);
 app.use("/api/whatsapp-log", whatsappRouter);
 app.use("/api/whatsapp", whatsappRouter);
 app.use("/api/jobs", jobsRouter);
