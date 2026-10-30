@@ -11,6 +11,8 @@ export interface IJob extends Document {
   locality?: string;
   salaryMin: number;
   salaryMax: number;
+  isSalaryNegotiable?: boolean;
+  salaryText?: string;
   hasIncentives?: boolean;
   incentivesText?: string;
   salaryBreakdown?: {
@@ -59,6 +61,8 @@ const JobSchema = new Schema<IJob>(
     locality: { type: String, trim: true },
     salaryMin: { type: Number, required: true },
     salaryMax: { type: Number, required: true },
+    isSalaryNegotiable: { type: Boolean, default: false },
+    salaryText: { type: String, trim: true },
     hasIncentives: { type: Boolean, default: false },
     incentivesText: { type: String, trim: true },
     salaryBreakdown: {
