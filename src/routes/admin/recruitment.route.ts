@@ -55,7 +55,7 @@ recruitmentAdminRouter.post("/", async (req: Request, res: Response, next: NextF
     const {
       fullName,
       mobile,
-      email,
+      email = "",
       position,
       location,
       experience = "Fresher",
@@ -65,15 +65,16 @@ recruitmentAdminRouter.post("/", async (req: Request, res: Response, next: NextF
       remarks = "",
     } = req.body;
 
-    if (!fullName || !mobile || !email || !position || !location) {
+    if (!fullName || !mobile || !position || !location) {
       res.status(400).json({
         success: false,
-        message: "Required fields: fullName, mobile, email, position, location",
+        message: "Required fields: fullName, mobile, position, location",
       });
       return;
     }
 
     const candidate = await AdminCandidate.create({
+      ...req.body,
       fullName: String(fullName).trim(),
       mobile: String(mobile).trim(),
       email: String(email).trim().toLowerCase(),

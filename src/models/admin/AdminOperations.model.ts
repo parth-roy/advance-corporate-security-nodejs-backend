@@ -3,29 +3,80 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 // ─── Recruitment / Candidates ─────────────────────────────────
 export type CandidateStatus = "New" | "Shortlisted" | "Selected" | "Rejected";
 
+export interface IFamilyMember {
+  name: string;
+  relation: string;
+  dateOfBirth: string;
+}
+
 export interface IAdminCandidate extends Document {
   fullName: string;
+  fatherOrHusbandName?: string;
+  dateOfBirth?: string;
+  permanentAddress?: string;
+  presentAddress?: string;
+  maritalStatus?: string;
+  highestQualification?: string;
   mobile: string;
   email: string;
+  height?: string;
+  weight?: string;
+  chest?: string;
   position: string;
+  identificationMark?: string;
   location: string;
   experience: string;
+  serviceCategory?: "Civil" | "Defense";
+  reference?: string;
   applicationDate: string;
   status: CandidateStatus;
+  dateOfJoining?: string;
+  joiningAs?: string;
+  salary?: string;
+  nomineeName?: string;
+  esiHolder?: "Yes" | "No";
+  esiNumber?: string;
+  uanNumber?: string;
+  familyMembers?: IFamilyMember[];
+  declarationAccepted?: boolean;
+  declarationDate?: string;
+  declarationPlace?: string;
+  applicantSignature?: string;
   resumeName: string;
   remarks: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
+const FamilyMemberSchema = new Schema<IFamilyMember>(
+  {
+    name: { type: String, trim: true, default: "" },
+    relation: { type: String, trim: true, default: "" },
+    dateOfBirth: { type: String, trim: true, default: "" },
+  },
+  { _id: false }
+);
+
 const AdminCandidateSchema = new Schema<IAdminCandidate>(
   {
     fullName: { type: String, required: true, trim: true, maxlength: 200 },
+    fatherOrHusbandName: { type: String, trim: true, maxlength: 200 },
+    dateOfBirth: { type: String, trim: true },
+    permanentAddress: { type: String, trim: true, maxlength: 1000 },
+    presentAddress: { type: String, trim: true, maxlength: 1000 },
+    maritalStatus: { type: String, trim: true, maxlength: 50 },
+    highestQualification: { type: String, trim: true, maxlength: 150 },
     mobile: { type: String, required: true, trim: true, maxlength: 30 },
-    email: { type: String, required: true, trim: true, lowercase: true, maxlength: 254 },
+    email: { type: String, default: "", trim: true, lowercase: true, maxlength: 254 },
+    height: { type: String, trim: true, maxlength: 50 },
+    weight: { type: String, trim: true, maxlength: 50 },
+    chest: { type: String, trim: true, maxlength: 50 },
     position: { type: String, required: true, trim: true, maxlength: 150 },
+    identificationMark: { type: String, trim: true, maxlength: 250 },
     location: { type: String, required: true, trim: true, maxlength: 150 },
     experience: { type: String, default: "Fresher", trim: true },
+    serviceCategory: { type: String, enum: ["Civil", "Defense"], default: "Civil" },
+    reference: { type: String, trim: true, maxlength: 250 },
     applicationDate: { type: String, required: true, trim: true },
     status: {
       type: String,
@@ -33,6 +84,18 @@ const AdminCandidateSchema = new Schema<IAdminCandidate>(
       default: "New",
       index: true,
     },
+    dateOfJoining: { type: String, trim: true },
+    joiningAs: { type: String, trim: true, maxlength: 150 },
+    salary: { type: String, trim: true, maxlength: 100 },
+    nomineeName: { type: String, trim: true, maxlength: 200 },
+    esiHolder: { type: String, enum: ["Yes", "No"], default: "No" },
+    esiNumber: { type: String, trim: true, maxlength: 100 },
+    uanNumber: { type: String, trim: true, maxlength: 100 },
+    familyMembers: [FamilyMemberSchema],
+    declarationAccepted: { type: Boolean, default: false },
+    declarationDate: { type: String, trim: true },
+    declarationPlace: { type: String, trim: true, maxlength: 150 },
+    applicantSignature: { type: String, trim: true, maxlength: 200 },
     resumeName: { type: String, default: "", trim: true },
     remarks: { type: String, default: "", trim: true, maxlength: 2000 },
   },
