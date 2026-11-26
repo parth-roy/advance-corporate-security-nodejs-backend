@@ -24,6 +24,7 @@ export interface IAdminCandidate extends Document {
   chest?: string;
   position: string;
   identificationMark?: string;
+  identificationMarks?: string[];
   location: string;
   experience: string;
   serviceCategory?: string;
@@ -72,7 +73,8 @@ const AdminCandidateSchema = new Schema<IAdminCandidate>(
     weight: { type: String, trim: true, maxlength: 50 },
     chest: { type: String, trim: true, maxlength: 50 },
     position: { type: String, required: true, trim: true, maxlength: 150 },
-    identificationMark: { type: String, trim: true, maxlength: 250 },
+    identificationMark: { type: String, trim: true, maxlength: 1000 },
+    identificationMarks: { type: [String], default: [] },
     location: { type: String, required: true, trim: true, maxlength: 150 },
     experience: { type: String, default: "", trim: true },
     serviceCategory: { type: String, default: "", trim: true, maxlength: 100 },

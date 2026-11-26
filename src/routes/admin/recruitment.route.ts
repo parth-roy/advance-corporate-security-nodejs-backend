@@ -24,6 +24,32 @@ function sanitizeFamilyMembers(raw: unknown) {
     .filter((m) => m.name || m.relation || m.dateOfBirth);
 }
 
+function normalizeIdentificationMarks(rawMark: unknown, rawMarks: unknown) {
+  const fromArray = Array.isArray(rawMarks)
+    ? rawMarks.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
+    : [];
+  const fromString =
+    typeof rawMark === "string"
+      ? rawMark
+          .split(/[;,]+/)
+          .map((item) => item.trim())
+          .filter(Boolean)
+      : [];
+
+  const source = fromArray.length > 0 ? fromArray : fromString;
+  const identificationMarks = Array.from(
+    new Set(source.filter((item) => item !== "__OTHER__")),
+  );
+  const identificationMark =
+    identificationMarks.length > 0
+      ? identificationMarks.join(", ")
+      : typeof rawMark === "string" && rawMark.trim() !== "__OTHER__"
+        ? rawMark.trim()
+        : "";
+
+  return { identificationMark, identificationMarks };
+}
+
 // ─── GET /api/admin/candidates ────────────────────────────────
 recruitmentAdminRouter.get("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
@@ -122,12 +148,19 @@ recruitmentAdminRouter.post("/", async (req: Request, res: Response, next: NextF
       return;
     }
 
+    const { identificationMark, identificationMarks } = normalizeIdentificationMarks(
+      body.identificationMark,
+      body.identificationMarks,
+    );
+
     const candidate = await AdminCandidate.create({
       ...body,
       fullName: String(fullName).trim(),
       mobile: cleanMobile,
       email: String(email).trim().toLowerCase(),
       position: String(position).trim(),
+      identificationMark,
+      identificationMarks,
       location: String(location).trim(),
       experience: String(experience).trim(),
       applicationDate: applicationDate ? String(applicationDate).trim() : todayIso(),
@@ -196,6 +229,15 @@ const updateCandidateHandler = async (req: Request, res: Response, next: NextFun
 
     if (updates.familyMembers !== undefined) {
       updates.familyMembers = sanitizeFamilyMembers(updates.familyMembers);
+    }
+
+    if (updates.identificationMark !== undefined || updates.identificationMarks !== undefined) {
+      const normalized = normalizeIdentificationMarks(
+        updates.identificationMark,
+        updates.identificationMarks,
+      );
+      updates.identificationMark = normalized.identificationMark;
+      updates.identificationMarks = normalized.identificationMarks;
     }
 
     const candidate = await AdminCandidate.findByIdAndUpdate(
