@@ -1,6 +1,13 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { ATTENDANCE_STATUSES, AdminAttendance, AttendanceStatus } from "../../models/admin/AdminOperations.model";
-import { escapeRegex, getParamId, logAdminActivity, serializeDoc, todayIso } from "./helpers";
+import {
+  escapeRegex,
+  getParamId,
+  logAdminActivity,
+  serializeDoc,
+  stripMetaFields,
+  todayIso,
+} from "./helpers";
 
 export const attendanceAdminRouter = Router();
 
@@ -134,7 +141,7 @@ const updateAttendanceHandler = async (req: Request, res: Response, next: NextFu
   try {
     const updated = await AdminAttendance.findByIdAndUpdate(
       getParamId(req),
-      { $set: req.body },
+      { $set: stripMetaFields(req.body) },
       { new: true, runValidators: true }
     );
     if (!updated) {

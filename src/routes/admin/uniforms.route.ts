@@ -4,7 +4,14 @@ import {
   AdminUniformItem,
   AdminUniformStockLog,
 } from "../../models/admin/AdminOperations.model";
-import { escapeRegex, getParamId, logAdminActivity, serializeDoc, todayIso } from "./helpers";
+import {
+  escapeRegex,
+  getParamId,
+  logAdminActivity,
+  serializeDoc,
+  stripMetaFields,
+  todayIso,
+} from "./helpers";
 
 export const uniformsAdminRouter = Router();
 export const uniformIssuesAdminRouter = Router();
@@ -125,7 +132,7 @@ uniformsAdminRouter.patch("/:id", async (req: Request, res: Response, next: Next
   try {
     const updated = await AdminUniformItem.findByIdAndUpdate(
       getParamId(req),
-      { $set: { ...req.body, lastUpdated: todayIso() } },
+      { $set: { ...stripMetaFields(req.body), lastUpdated: todayIso() } },
       { new: true, runValidators: true }
     );
     if (!updated) {

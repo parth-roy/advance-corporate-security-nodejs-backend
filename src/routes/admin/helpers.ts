@@ -21,6 +21,11 @@ export function serializeDoc<T extends Record<string, any>>(doc: T): T & { id: s
   return { ...plain, id };
 }
 
+export function stripMetaFields(body: Record<string, any>): Record<string, any> {
+  const { _id, id, __v, createdAt, updatedAt, ...rest } = body || {};
+  return rest;
+}
+
 export async function logAdminActivity(
   title: string,
   detail: string,

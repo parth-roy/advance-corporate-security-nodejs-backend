@@ -1,8 +1,28 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { AdminCandidate } from "../../models/admin/AdminOperations.model";
-import { escapeRegex, getParamId, logAdminActivity, serializeDoc, todayIso } from "./helpers";
+import {
+  escapeRegex,
+  getParamId,
+  logAdminActivity,
+  serializeDoc,
+  stripMetaFields,
+  todayIso,
+} from "./helpers";
 
 export const recruitmentAdminRouter = Router();
+
+const TEN_DIGIT_MOBILE_RE = /^\d{10}$/;
+
+function sanitizeFamilyMembers(raw: unknown) {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => ({
+      name: typeof item?.name === "string" ? item.name.trim() : "",
+      relation: typeof item?.relation === "string" ? item.relation.trim() : "",
+      dateOfBirth: typeof item?.dateOfBirth === "string" ? item.dateOfBirth.trim() : "",
+    }))
+    .filter((m) => m.name || m.relation || m.dateOfBirth);
+}
 
 // ─── GET /api/admin/candidates ────────────────────────────────
 recruitmentAdminRouter.get("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -52,18 +72,22 @@ recruitmentAdminRouter.get("/:id", async (req: Request, res: Response, next: Nex
 // ─── POST /api/admin/candidates ───────────────────────────────
 recruitmentAdminRouter.post("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const body = stripMetaFields(req.body);
     const {
       fullName,
       mobile,
       email = "",
       position,
       location,
-      experience = "Fresher",
+      experience = "",
       applicationDate,
       status = "New",
+      esiHolder = "",
+      esiNumber = "",
+      uanNumber = "",
       resumeName = "",
       remarks = "",
-    } = req.body;
+    } = body;
 
     if (!fullName || !mobile || !position || !location) {
       res.status(400).json({
@@ -73,29 +97,58 @@ recruitmentAdminRouter.post("/", async (req: Request, res: Response, next: NextF
       return;
     }
 
+    const cleanMobile = String(mobile).trim();
+    if (!TEN_DIGIT_MOBILE_RE.test(cleanMobile)) {
+      res.status(400).json({
+        success: false,
+        message: "Mobile Number must be exactly 10 digits.",
+      });
+      return;
+    }
+
+    if (esiHolder === "Yes" && (!String(esiNumber).trim() || !String(uanNumber).trim())) {
+      res.status(400).json({
+        success: false,
+        message: "Both ESI No and UAN No are required when ESI Holder is Yes.",
+      });
+      return;
+    }
+
+    if (String(body.serviceCategory || "").trim() === "Other") {
+      res.status(400).json({
+        success: false,
+        message: "Please specify the Civil / Defense value when Other is selected.",
+      });
+      return;
+    }
+
     const candidate = await AdminCandidate.create({
-      ...req.body,
+      ...body,
       fullName: String(fullName).trim(),
-      mobile: String(mobile).trim(),
+      mobile: cleanMobile,
       email: String(email).trim().toLowerCase(),
       position: String(position).trim(),
       location: String(location).trim(),
       experience: String(experience).trim(),
       applicationDate: applicationDate ? String(applicationDate).trim() : todayIso(),
-      status,
+      status: status || "New",
+      esiHolder,
+      esiNumber: esiHolder === "Yes" ? String(esiNumber).trim() : "",
+      uanNumber: esiHolder === "Yes" ? String(uanNumber).trim() : "",
+      familyMembers: sanitizeFamilyMembers(body.familyMembers),
       resumeName: String(resumeName).trim(),
       remarks: String(remarks).trim(),
     });
 
     await logAdminActivity(
-      "New candidate added",
-      `${candidate.fullName} applied for ${candidate.position}.`,
+      "New employee application added",
+      `${candidate.fullName} registered for ${candidate.position}.`,
       "Recruitment"
     );
 
     res.status(201).json({
       success: true,
-      message: "Candidate created successfully",
+      message: "Employee application saved successfully",
       data: serializeDoc(candidate),
     });
   } catch (err) {
@@ -106,9 +159,48 @@ recruitmentAdminRouter.post("/", async (req: Request, res: Response, next: NextF
 // ─── PATCH / PUT /api/admin/candidates/:id ────────────────────
 const updateCandidateHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const updates = stripMetaFields(req.body);
+
+    if (updates.mobile !== undefined) {
+      const cleanMobile = String(updates.mobile).trim();
+      if (!TEN_DIGIT_MOBILE_RE.test(cleanMobile)) {
+        res.status(400).json({
+          success: false,
+          message: "Mobile Number must be exactly 10 digits.",
+        });
+        return;
+      }
+      updates.mobile = cleanMobile;
+    }
+
+    if (updates.esiHolder === "Yes") {
+      if (!String(updates.esiNumber || "").trim() || !String(updates.uanNumber || "").trim()) {
+        res.status(400).json({
+          success: false,
+          message: "Both ESI No and UAN No are required when ESI Holder is Yes.",
+        });
+        return;
+      }
+    } else if (updates.esiHolder === "No") {
+      updates.esiNumber = "";
+      updates.uanNumber = "";
+    }
+
+    if (updates.serviceCategory !== undefined && String(updates.serviceCategory || "").trim() === "Other") {
+      res.status(400).json({
+        success: false,
+        message: "Please specify the Civil / Defense value when Other is selected.",
+      });
+      return;
+    }
+
+    if (updates.familyMembers !== undefined) {
+      updates.familyMembers = sanitizeFamilyMembers(updates.familyMembers);
+    }
+
     const candidate = await AdminCandidate.findByIdAndUpdate(
       getParamId(req),
-      { $set: req.body },
+      { $set: updates },
       { new: true, runValidators: true }
     );
 
@@ -118,14 +210,14 @@ const updateCandidateHandler = async (req: Request, res: Response, next: NextFun
     }
 
     await logAdminActivity(
-      "Candidate updated",
+      "Employee application updated",
       `${candidate.fullName} status set to ${candidate.status}.`,
       "Recruitment"
     );
 
     res.json({
       success: true,
-      message: "Candidate updated successfully",
+      message: "Employee application updated successfully",
       data: serializeDoc(candidate),
     });
   } catch (err) {
@@ -146,7 +238,7 @@ recruitmentAdminRouter.delete("/:id", async (req: Request, res: Response, next: 
     }
 
     await logAdminActivity(
-      "Candidate removed",
+      "Employee application removed",
       `${deleted.fullName} removed from recruitment pipeline.`,
       "Recruitment"
     );

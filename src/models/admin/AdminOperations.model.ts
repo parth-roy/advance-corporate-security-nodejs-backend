@@ -26,7 +26,7 @@ export interface IAdminCandidate extends Document {
   identificationMark?: string;
   location: string;
   experience: string;
-  serviceCategory?: "Civil" | "Defense";
+  serviceCategory?: string;
   reference?: string;
   applicationDate: string;
   status: CandidateStatus;
@@ -34,7 +34,7 @@ export interface IAdminCandidate extends Document {
   joiningAs?: string;
   salary?: string;
   nomineeName?: string;
-  esiHolder?: "Yes" | "No";
+  esiHolder?: "Yes" | "No" | "";
   esiNumber?: string;
   uanNumber?: string;
   familyMembers?: IFamilyMember[];
@@ -74,8 +74,8 @@ const AdminCandidateSchema = new Schema<IAdminCandidate>(
     position: { type: String, required: true, trim: true, maxlength: 150 },
     identificationMark: { type: String, trim: true, maxlength: 250 },
     location: { type: String, required: true, trim: true, maxlength: 150 },
-    experience: { type: String, default: "Fresher", trim: true },
-    serviceCategory: { type: String, enum: ["Civil", "Defense"], default: "Civil" },
+    experience: { type: String, default: "", trim: true },
+    serviceCategory: { type: String, default: "", trim: true, maxlength: 100 },
     reference: { type: String, trim: true, maxlength: 250 },
     applicationDate: { type: String, required: true, trim: true },
     status: {
@@ -88,7 +88,7 @@ const AdminCandidateSchema = new Schema<IAdminCandidate>(
     joiningAs: { type: String, trim: true, maxlength: 150 },
     salary: { type: String, trim: true, maxlength: 100 },
     nomineeName: { type: String, trim: true, maxlength: 200 },
-    esiHolder: { type: String, enum: ["Yes", "No"], default: "No" },
+    esiHolder: { type: String, enum: ["Yes", "No", ""], default: "" },
     esiNumber: { type: String, trim: true, maxlength: 100 },
     uanNumber: { type: String, trim: true, maxlength: 100 },
     familyMembers: [FamilyMemberSchema],

@@ -14,7 +14,7 @@ import {
   AdminSettings,
   AdminStatutory,
 } from "../../models/admin/AdminFinance.model";
-import { logAdminActivity, serializeDoc } from "./helpers";
+import { logAdminActivity, serializeDoc, todayIso } from "./helpers";
 
 export const systemAdminRouter = Router();
 
@@ -159,3 +159,81 @@ const updateSettingsHandler = async (req: Request, res: Response, next: NextFunc
 
 systemAdminRouter.put("/settings", updateSettingsHandler);
 systemAdminRouter.patch("/settings", updateSettingsHandler);
+
+// ─── POST /api/admin/employees/quick ──────────────────────────
+systemAdminRouter.post(
+  "/employees/quick",
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { employeeId, name, designation, location, basicSalary } = req.body as {
+        employeeId?: string;
+        name?: string;
+        designation?: string;
+        location?: string;
+        basicSalary?: number;
+      };
+
+      const salaryNum = Number(basicSalary);
+      if (!employeeId || !name || !designation || !location || !Number.isFinite(salaryNum) || salaryNum <= 0) {
+        res.status(400).json({
+          success: false,
+          message: "Required fields: employeeId, name, designation, location, positive basicSalary",
+        });
+        return;
+      }
+
+      const settings = await AdminSettings.findOne({ key: "default" }).lean();
+      const month = settings?.defaultMonth || "November 2026";
+      const year = String(new Date().getFullYear());
+
+      const [attendanceDoc, salaryDoc] = await Promise.all([
+        AdminAttendance.create({
+          employeeId: employeeId.trim(),
+          employeeName: name.trim(),
+          designation: designation.trim(),
+          location: location.trim(),
+          date: todayIso(),
+          checkIn: "08:00",
+          checkOut: "16:00",
+          workingHours: "8h 00m",
+          status: "Present",
+        }),
+        AdminSalary.create({
+          employeeId: employeeId.trim(),
+          employeeName: name.trim(),
+          designation: designation.trim(),
+          department: "Field Operations",
+          category: "Security Personnel",
+          location: location.trim(),
+          month,
+          year,
+          basicSalary: salaryNum,
+          allowances: Math.round(salaryNum * 0.2),
+          overtime: 0,
+          otherEarnings: 0,
+          pfDeduction: 1800,
+          esiDeduction: 140,
+          otherDeductions: 0,
+          status: "Pending",
+        }),
+      ]);
+
+      await logAdminActivity(
+        "Employee added",
+        `${name.trim()} (${employeeId.trim()}) assigned to ${location.trim()}.`,
+        "Operations"
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "Employee added to attendance and payroll.",
+        data: {
+          attendance: serializeDoc(attendanceDoc),
+          salary: serializeDoc(salaryDoc),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);

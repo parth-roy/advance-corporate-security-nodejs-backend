@@ -1,6 +1,13 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { AdminPayslip, AdminSalary, AdminStatutory } from "../../models/admin/AdminFinance.model";
-import { escapeRegex, getParamId, logAdminActivity, serializeDoc, todayIso } from "./helpers";
+import {
+  escapeRegex,
+  getParamId,
+  logAdminActivity,
+  serializeDoc,
+  stripMetaFields,
+  todayIso,
+} from "./helpers";
 
 export const statutoryAdminRouter = Router();
 export const salariesAdminRouter = Router();
@@ -67,7 +74,7 @@ statutoryAdminRouter.patch("/:id", async (req: Request, res: Response, next: Nex
   try {
     const updated = await AdminStatutory.findByIdAndUpdate(
       getParamId(req),
-      { $set: req.body },
+      { $set: stripMetaFields(req.body) },
       { new: true, runValidators: true }
     );
     if (!updated) {
@@ -256,7 +263,7 @@ salariesAdminRouter.patch("/:id", async (req: Request, res: Response, next: Next
   try {
     const updated = await AdminSalary.findByIdAndUpdate(
       getParamId(req),
-      { $set: req.body },
+      { $set: stripMetaFields(req.body) },
       { new: true, runValidators: true }
     );
     if (!updated) {

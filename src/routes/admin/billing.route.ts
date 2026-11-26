@@ -1,6 +1,13 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { AdminInvoice } from "../../models/admin/AdminFinance.model";
-import { escapeRegex, getParamId, logAdminActivity, serializeDoc, todayIso } from "./helpers";
+import {
+  escapeRegex,
+  getParamId,
+  logAdminActivity,
+  serializeDoc,
+  stripMetaFields,
+  todayIso,
+} from "./helpers";
 
 export const billingAdminRouter = Router();
 
@@ -111,7 +118,7 @@ const updateInvoiceHandler = async (req: Request, res: Response, next: NextFunct
   try {
     const updated = await AdminInvoice.findByIdAndUpdate(
       getParamId(req),
-      { $set: req.body },
+      { $set: stripMetaFields(req.body) },
       { new: true, runValidators: true }
     );
     if (!updated) {
