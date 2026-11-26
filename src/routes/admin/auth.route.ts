@@ -22,6 +22,28 @@ const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_DURATION_MS = 15 * 60 * 1000;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+function serializeAdminUser(user: {
+  _id: unknown;
+  name: string;
+  email: string;
+  phone?: string;
+  jobTitle?: string;
+  role: AdminRole;
+  isActive: boolean;
+  lastLoginAt?: Date | null;
+}) {
+  return {
+    id: String(user._id),
+    name: user.name,
+    email: user.email,
+    phone: user.phone || "",
+    jobTitle: user.jobTitle || "",
+    role: user.role,
+    isActive: user.isActive,
+    lastLoginAt: user.lastLoginAt ?? null,
+  };
+}
+
 function setSessionCookie(res: Response, token: string): void {
   const isProd = process.env.NODE_ENV === "production";
   res.cookie(ADMIN_AUTH_COOKIE, token, {
@@ -129,14 +151,7 @@ authAdminRouter.post(
         data: {
           token,
           expiresIn,
-          user: {
-            id: String(user._id),
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            isActive: user.isActive,
-            lastLoginAt: user.lastLoginAt,
-          },
+          user: serializeAdminUser(user),
         },
       });
     } catch (err) {
@@ -179,14 +194,110 @@ authAdminRouter.get(
       res.json({
         success: true,
         data: {
-          user: {
-            id: String(user._id),
-            name: user.name,
-            email: user.email,
-            role: user.role,
-            isActive: user.isActive,
-            lastLoginAt: user.lastLoginAt,
-          },
+          user: serializeAdminUser(user),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── PATCH /api/admin/auth/me ─────────────────────────────────
+authAdminRouter.patch(
+  "/me",
+  requireAdminAuth,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { name, email, phone, jobTitle } = req.body as {
+        name?: unknown;
+        email?: unknown;
+        phone?: unknown;
+        jobTitle?: unknown;
+      };
+
+      const user = await AdminUser.findById(req.adminUser!.id);
+      if (!user) {
+        res.status(401).json({ success: false, message: "Account not found." });
+        return;
+      }
+
+      if (name !== undefined) {
+        const cleanName = typeof name === "string" ? name.trim() : "";
+        if (!cleanName) {
+          res.status(400).json({ success: false, message: "Full name cannot be empty." });
+          return;
+        }
+        user.name = cleanName;
+      }
+
+      let emailChanged = false;
+      if (email !== undefined) {
+        const cleanEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+        if (!cleanEmail || !EMAIL_RE.test(cleanEmail)) {
+          res.status(400).json({ success: false, message: "Please enter a valid email address." });
+          return;
+        }
+        if (cleanEmail !== user.email) {
+          const duplicate = await AdminUser.findOne({
+            email: cleanEmail,
+            _id: { $ne: user._id },
+          }).lean();
+          if (duplicate) {
+            res.status(409).json({
+              success: false,
+              message: "Another admin account already uses this email address.",
+            });
+            return;
+          }
+          user.email = cleanEmail;
+          emailChanged = true;
+        }
+      }
+
+      if (phone !== undefined) {
+        const cleanPhone = typeof phone === "string" ? phone.trim() : "";
+        const phoneDigits = cleanPhone.replace(/\D/g, "");
+        if (cleanPhone && (phoneDigits.length < 10 || phoneDigits.length > 15)) {
+          res.status(400).json({
+            success: false,
+            message: "Phone number must contain 10 to 15 digits (or leave it blank).",
+          });
+          return;
+        }
+        user.phone = cleanPhone;
+      }
+
+      if (jobTitle !== undefined) {
+        user.jobTitle = typeof jobTitle === "string" ? jobTitle.trim() : "";
+      }
+
+      await user.save();
+
+      let nextToken: string | undefined;
+      if (emailChanged) {
+        const signed = signAdminJwt({
+          sub: String(user._id),
+          email: user.email,
+          role: user.role,
+          tokenVersion: user.tokenVersion,
+        });
+        nextToken = signed.token;
+        setSessionCookie(res, nextToken);
+      }
+
+      await logAdminActivity(
+        "Admin profile updated",
+        `${user.name} (${user.email}) updated their profile details.`,
+        "Auth"
+      );
+
+      res.json({
+        success: true,
+        message: "Admin profile updated successfully.",
+        data: {
+          user: serializeAdminUser(user),
+          ...(nextToken ? { token: nextToken } : {}),
         },
       });
     } catch (err) {
@@ -283,16 +394,20 @@ authAdminRouter.post(
   requireAdminRole("super_admin", "admin"),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
-      const { name, email, password, role = "admin", isActive = true } = req.body as {
+      const { name, email, password, phone = "", jobTitle = "", role = "admin", isActive = true } = req.body as {
         name?: unknown;
         email?: unknown;
         password?: unknown;
+        phone?: unknown;
+        jobTitle?: unknown;
         role?: AdminRole;
         isActive?: boolean;
       };
 
       const cleanName = typeof name === "string" ? name.trim() : "";
       const cleanEmail = typeof email === "string" ? email.trim().toLowerCase() : "";
+      const cleanPhone = typeof phone === "string" ? phone.trim() : "";
+      const cleanJobTitle = typeof jobTitle === "string" ? jobTitle.trim() : "";
       const rawPassword = typeof password === "string" ? password : "";
 
       if (!cleanName || !cleanEmail || !EMAIL_RE.test(cleanEmail) || rawPassword.length < 8) {
@@ -324,6 +439,8 @@ authAdminRouter.post(
       const created = await AdminUser.create({
         name: cleanName,
         email: cleanEmail,
+        phone: cleanPhone,
+        jobTitle: cleanJobTitle,
         passwordHash,
         role,
         isActive: Boolean(isActive),
@@ -338,13 +455,7 @@ authAdminRouter.post(
       res.status(201).json({
         success: true,
         message: "Admin user created successfully.",
-        data: {
-          id: String(created._id),
-          name: created.name,
-          email: created.email,
-          role: created.role,
-          isActive: created.isActive,
-        },
+        data: serializeAdminUser(created),
       });
     } catch (err) {
       next(err);
@@ -360,8 +471,10 @@ authAdminRouter.patch(
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const targetId = getParamId(req);
-      const { name, role, isActive, resetPassword } = req.body as {
+      const { name, phone, jobTitle, role, isActive, resetPassword } = req.body as {
         name?: string;
+        phone?: string;
+        jobTitle?: string;
         role?: AdminRole;
         isActive?: boolean;
         resetPassword?: string;
@@ -374,6 +487,8 @@ authAdminRouter.patch(
       }
 
       if (typeof name === "string" && name.trim()) user.name = name.trim();
+      if (typeof phone === "string") user.phone = phone.trim();
+      if (typeof jobTitle === "string") user.jobTitle = jobTitle.trim();
       if (role !== undefined) {
         if (!ADMIN_ROLES.includes(role)) {
           res.status(400).json({ success: false, message: "Invalid role." });
@@ -408,13 +523,7 @@ authAdminRouter.patch(
       res.json({
         success: true,
         message: "Admin user updated.",
-        data: {
-          id: String(user._id),
-          name: user.name,
-          email: user.email,
-          role: user.role,
-          isActive: user.isActive,
-        },
+        data: serializeAdminUser(user),
       });
     } catch (err) {
       next(err);

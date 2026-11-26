@@ -263,6 +263,7 @@ export interface IAdminSettings extends Document {
   emailAlerts: boolean;
   compactTables: boolean;
   defaultMonth: string;
+  uniformRegistrationCharge?: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -270,10 +271,10 @@ export interface IAdminSettings extends Document {
 const AdminSettingsSchema = new Schema<IAdminSettings>(
   {
     key: { type: String, default: "default", unique: true, index: true },
-    adminName: { type: String, default: "Rajeshwar Nair", trim: true },
-    adminRole: { type: String, default: "Operations Director", trim: true },
-    adminEmail: { type: String, default: "admin@advancecorporatesecurity.com", trim: true },
-    adminPhone: { type: String, default: "+91 98451 22310", trim: true },
+    adminName: { type: String, default: "", trim: true },
+    adminRole: { type: String, default: "", trim: true },
+    adminEmail: { type: String, default: "", trim: true },
+    adminPhone: { type: String, default: "", trim: true },
     companyName: { type: String, default: "Advance Corporate Security", trim: true },
     companyWebsite: { type: String, default: "https://advancecorporatesecurity.com", trim: true },
     companyGstin: { type: String, default: "19AABCA9021D1Z5", trim: true },
@@ -284,6 +285,7 @@ const AdminSettingsSchema = new Schema<IAdminSettings>(
     emailAlerts: { type: Boolean, default: true },
     compactTables: { type: Boolean, default: false },
     defaultMonth: { type: String, default: "November 2026", trim: true },
+    uniformRegistrationCharge: { type: Number, default: 250, min: 0 },
   },
   { timestamps: true, collection: "admin_settings" }
 );

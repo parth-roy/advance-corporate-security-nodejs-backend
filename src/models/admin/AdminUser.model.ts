@@ -6,6 +6,8 @@ export type AdminRole = (typeof ADMIN_ROLES)[number];
 export interface IAdminUser extends Document {
   name: string;
   email: string;
+  phone?: string;
+  jobTitle?: string;
   passwordHash: string;
   role: AdminRole;
   isActive: boolean;
@@ -30,6 +32,8 @@ const AdminUserSchema = new Schema<IAdminUser>(
       maxlength: 254,
       index: true,
     },
+    phone: { type: String, default: "", trim: true, maxlength: 30 },
+    jobTitle: { type: String, default: "", trim: true, maxlength: 120 },
     passwordHash: { type: String, required: true, select: false },
     role: { type: String, enum: ADMIN_ROLES, default: "admin" },
     isActive: { type: Boolean, default: true, index: true },

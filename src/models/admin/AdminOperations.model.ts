@@ -10,6 +10,7 @@ export interface IFamilyMember {
 }
 
 export interface IAdminCandidate extends Document {
+  employeeId?: string;
   fullName: string;
   fatherOrHusbandName?: string;
   dateOfBirth?: string;
@@ -60,6 +61,7 @@ const FamilyMemberSchema = new Schema<IFamilyMember>(
 
 const AdminCandidateSchema = new Schema<IAdminCandidate>(
   {
+    employeeId: { type: String, default: "", trim: true, uppercase: true, maxlength: 60, index: true },
     fullName: { type: String, required: true, trim: true, maxlength: 200 },
     fatherOrHusbandName: { type: String, trim: true, maxlength: 200 },
     dateOfBirth: { type: String, trim: true },
@@ -112,14 +114,19 @@ export const AdminCandidate: Model<IAdminCandidate> =
 
 // ─── Uniform Inventory ────────────────────────────────────────
 export const UNIFORM_CATEGORIES = [
-  "Security Uniform",
-  "Security Shoes",
-  "Shirts",
-  "Trousers",
-  "Belts",
-  "Caps",
-  "Winter Uniform",
-  "Accessories",
+  "Shirt",
+  "T-Shirt",
+  "Pant",
+  "Belt",
+  "Shoe",
+  "Badge",
+  "Cap",
+  "Lanyard + Whistle",
+  "Safety Shoe",
+  "Safety Gloves",
+  "Jacket",
+  "Safety Helmet",
+  "ID Card",
 ] as const;
 
 export type UniformCategory = (typeof UNIFORM_CATEGORIES)[number];
@@ -127,7 +134,9 @@ export type UniformCategory = (typeof UNIFORM_CATEGORIES)[number];
 export interface IAdminUniformItem extends Document {
   name: string;
   category: UniformCategory;
+  subCategory?: string;
   size: string;
+  unitPrice: number;
   availableQty: number;
   issuedQty: number;
   lastUpdated: string;
@@ -137,9 +146,11 @@ export interface IAdminUniformItem extends Document {
 
 const AdminUniformItemSchema = new Schema<IAdminUniformItem>(
   {
-    name: { type: String, required: true, trim: true, maxlength: 200 },
+    name: { type: String, default: "", trim: true, maxlength: 200 },
     category: { type: String, enum: UNIFORM_CATEGORIES, required: true, index: true },
+    subCategory: { type: String, default: "", trim: true, maxlength: 120 },
     size: { type: String, required: true, trim: true, maxlength: 50 },
+    unitPrice: { type: Number, default: 0, min: 0 },
     availableQty: { type: Number, required: true, min: 0, default: 0 },
     issuedQty: { type: Number, required: true, min: 0, default: 0 },
     lastUpdated: { type: String, required: true, trim: true },
@@ -153,15 +164,22 @@ export const AdminUniformItem: Model<IAdminUniformItem> =
 
 // ─── Uniform Issue Records ────────────────────────────────────
 export interface IAdminUniformIssue extends Document {
+  batchId?: string;
   employeeId: string;
   employeeName: string;
   site: string;
   itemId: string;
   itemName: string;
+  category?: string;
+  subCategory?: string;
   size: string;
   quantity: number;
+  unitPrice: number;
+  registrationCharge: number;
+  totalAmount: number;
   issueDate: string;
   returnDate?: string;
+  remarks?: string;
   status: "Issued" | "Returned";
   createdAt: Date;
   updatedAt: Date;
@@ -169,15 +187,22 @@ export interface IAdminUniformIssue extends Document {
 
 const AdminUniformIssueSchema = new Schema<IAdminUniformIssue>(
   {
+    batchId: { type: String, default: "", trim: true, index: true },
     employeeId: { type: String, required: true, trim: true, index: true },
     employeeName: { type: String, required: true, trim: true },
     site: { type: String, required: true, trim: true },
     itemId: { type: String, required: true, trim: true, index: true },
     itemName: { type: String, required: true, trim: true },
+    category: { type: String, default: "", trim: true },
+    subCategory: { type: String, default: "", trim: true },
     size: { type: String, required: true, trim: true },
     quantity: { type: Number, required: true, min: 1 },
+    unitPrice: { type: Number, default: 0, min: 0 },
+    registrationCharge: { type: Number, default: 0, min: 0 },
+    totalAmount: { type: Number, default: 0, min: 0 },
     issueDate: { type: String, required: true, trim: true },
     returnDate: { type: String, trim: true },
+    remarks: { type: String, default: "", trim: true, maxlength: 500 },
     status: { type: String, enum: ["Issued", "Returned"], default: "Issued", index: true },
   },
   { timestamps: true, collection: "admin_uniform_issues" }

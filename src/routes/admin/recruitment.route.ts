@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
 import { AdminCandidate } from "../../models/admin/AdminOperations.model";
 import {
   escapeRegex,
@@ -12,6 +13,44 @@ import {
 export const recruitmentAdminRouter = Router();
 
 const TEN_DIGIT_MOBILE_RE = /^\d{10}$/;
+const EMPLOYEE_ID_RE = /^[A-Z0-9][A-Z0-9/-]{0,59}$/;
+
+async function resolveValidatedEmployeeId(
+  rawValue: unknown,
+  excludeId?: string
+): Promise<{ employeeId: string; status?: number; message?: string }> {
+  const employeeId =
+    rawValue === undefined || rawValue === null ? "" : String(rawValue).trim().toUpperCase();
+
+  if (!employeeId) {
+    return { employeeId: "" };
+  }
+
+  if (!EMPLOYEE_ID_RE.test(employeeId)) {
+    return {
+      employeeId,
+      status: 400,
+      message:
+        "Employee ID must be up to 60 characters using only letters, numbers, slashes (/), or hyphens (-).",
+    };
+  }
+
+  const conflictFilter: Record<string, unknown> = { employeeId };
+  if (excludeId) {
+    conflictFilter._id = { $ne: excludeId };
+  }
+
+  const existing = await AdminCandidate.findOne(conflictFilter).select("_id").lean();
+  if (existing) {
+    return {
+      employeeId,
+      status: 409,
+      message: `Employee ID "${employeeId}" is already assigned to another candidate.`,
+    };
+  }
+
+  return { employeeId };
+}
 
 function sanitizeFamilyMembers(raw: unknown) {
   if (!Array.isArray(raw)) return [];
@@ -62,6 +101,7 @@ recruitmentAdminRouter.get("/", async (req: Request, res: Response, next: NextFu
     if (typeof search === "string" && search.trim()) {
       const regex = new RegExp(escapeRegex(search.trim()), "i");
       filter.$or = [
+        { employeeId: regex },
         { fullName: regex },
         { email: regex },
         { mobile: regex },
@@ -148,6 +188,15 @@ recruitmentAdminRouter.post("/", async (req: Request, res: Response, next: NextF
       return;
     }
 
+    const idCheck = await resolveValidatedEmployeeId(body.employeeId);
+    if (idCheck.status) {
+      res.status(idCheck.status).json({
+        success: false,
+        message: idCheck.message,
+      });
+      return;
+    }
+
     const { identificationMark, identificationMarks } = normalizeIdentificationMarks(
       body.identificationMark,
       body.identificationMarks,
@@ -155,6 +204,7 @@ recruitmentAdminRouter.post("/", async (req: Request, res: Response, next: NextF
 
     const candidate = await AdminCandidate.create({
       ...body,
+      employeeId: idCheck.employeeId,
       fullName: String(fullName).trim(),
       mobile: cleanMobile,
       email: String(email).trim().toLowerCase(),
@@ -192,7 +242,25 @@ recruitmentAdminRouter.post("/", async (req: Request, res: Response, next: NextF
 // ─── PATCH / PUT /api/admin/candidates/:id ────────────────────
 const updateCandidateHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const candidateId = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(candidateId)) {
+      res.status(404).json({ success: false, message: "Candidate not found" });
+      return;
+    }
+
     const updates = stripMetaFields(req.body);
+
+    if (updates.employeeId !== undefined) {
+      const idCheck = await resolveValidatedEmployeeId(updates.employeeId, candidateId);
+      if (idCheck.status) {
+        res.status(idCheck.status).json({
+          success: false,
+          message: idCheck.message,
+        });
+        return;
+      }
+      updates.employeeId = idCheck.employeeId;
+    }
 
     if (updates.mobile !== undefined) {
       const cleanMobile = String(updates.mobile).trim();

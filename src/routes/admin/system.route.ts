@@ -14,6 +14,7 @@ import {
   AdminSettings,
   AdminStatutory,
 } from "../../models/admin/AdminFinance.model";
+import { ensureUniformCatalogSeeded } from "../../data/uniformCatalogSeed";
 import { logAdminActivity, serializeDoc, todayIso } from "./helpers";
 
 export const systemAdminRouter = Router();
@@ -55,6 +56,8 @@ systemAdminRouter.get("/health", async (_req: Request, res: Response, next: Next
 // Returns full admin tables snapshot + KPI summary
 systemAdminRouter.get("/overview", async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    await ensureUniformCatalogSeeded();
+
     const [
       candidates,
       uniforms,
@@ -135,6 +138,23 @@ systemAdminRouter.get("/settings", async (_req: Request, res: Response, next: Ne
 const updateSettingsHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { key: _ignoredKey, _id: _ignoredId, id: _ignoredStrId, ...updates } = req.body;
+    if (updates.uniformRegistrationCharge !== undefined) {
+      const fee = Number(updates.uniformRegistrationCharge);
+      if (
+        updates.uniformRegistrationCharge === null ||
+        updates.uniformRegistrationCharge === "" ||
+        !Number.isFinite(fee) ||
+        fee < 0
+      ) {
+        res.status(400).json({
+          success: false,
+          message: "uniformRegistrationCharge must be a non-negative number",
+        });
+        return;
+      }
+      updates.uniformRegistrationCharge = fee;
+    }
+
     const settings = await AdminSettings.findOneAndUpdate(
       { key: "default" },
       { $set: updates, $setOnInsert: { key: "default" } },

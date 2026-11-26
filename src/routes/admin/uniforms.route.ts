@@ -1,9 +1,14 @@
 import { Router, Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
 import {
   AdminUniformIssue,
   AdminUniformItem,
   AdminUniformStockLog,
+  IAdminUniformItem,
+  UNIFORM_CATEGORIES,
+  UniformCategory,
 } from "../../models/admin/AdminOperations.model";
+import { ensureUniformCatalogSeeded } from "../../data/uniformCatalogSeed";
 import {
   escapeRegex,
   getParamId,
@@ -17,9 +22,83 @@ export const uniformsAdminRouter = Router();
 export const uniformIssuesAdminRouter = Router();
 export const stockLogsAdminRouter = Router();
 
+function isValidUniformCategory(value: unknown): value is UniformCategory {
+  return (
+    typeof value === "string" &&
+    (UNIFORM_CATEGORIES as readonly string[]).includes(value)
+  );
+}
+
+function deriveUniformItemName(category: string, subCategory?: string): string {
+  const cleanSub = typeof subCategory === "string" ? subCategory.trim() : "";
+  return cleanSub || category.trim();
+}
+
+function parseNonNegativeNumber(raw: unknown, defaultValue?: number): number | null {
+  if (raw === undefined) {
+    return defaultValue !== undefined ? defaultValue : null;
+  }
+  if (raw === null || (typeof raw === "string" && raw.trim() === "")) {
+    return null;
+  }
+  const num = Number(raw);
+  return Number.isFinite(num) && num >= 0 ? num : null;
+}
+
+interface IssueLineInput {
+  itemId: string;
+  quantity: number;
+  unitPrice: number | null;
+}
+
+function buildIssueRecordPayload(params: {
+  batchId?: string;
+  employeeId: string;
+  employeeName: string;
+  site: string;
+  item: IAdminUniformItem;
+  quantity: number;
+  unitPrice: number;
+  registrationCharge: number;
+  issueDate: string;
+  remarks: string;
+}) {
+  const itemName = deriveUniformItemName(params.item.category, params.item.subCategory) || params.item.name;
+  const totalAmount = params.quantity * params.unitPrice + params.registrationCharge;
+  return {
+    issue: {
+      batchId: params.batchId || "",
+      employeeId: params.employeeId,
+      employeeName: params.employeeName,
+      site: params.site,
+      itemId: String(params.item._id),
+      itemName,
+      category: params.item.category,
+      subCategory: params.item.subCategory || "",
+      size: params.item.size,
+      quantity: params.quantity,
+      unitPrice: params.unitPrice,
+      registrationCharge: params.registrationCharge,
+      totalAmount,
+      issueDate: params.issueDate,
+      remarks: params.remarks,
+      status: "Issued" as const,
+    },
+    stockLog: {
+      itemName,
+      action: "Issued" as const,
+      quantity: params.quantity,
+      date: params.issueDate,
+      note: `Issued to ${params.employeeName} (${params.employeeId})`,
+    },
+  };
+}
+
 // ─── Uniform Inventory (/api/admin/uniforms) ──────────────────
 uniformsAdminRouter.get("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    await ensureUniformCatalogSeeded();
+
     const { category, search } = req.query;
     const filter: Record<string, any> = {};
 
@@ -28,7 +107,12 @@ uniformsAdminRouter.get("/", async (req: Request, res: Response, next: NextFunct
     }
     if (typeof search === "string" && search.trim()) {
       const regex = new RegExp(escapeRegex(search.trim()), "i");
-      filter.$or = [{ name: regex }, { category: regex }, { size: regex }];
+      filter.$or = [
+        { name: regex },
+        { category: regex },
+        { subCategory: regex },
+        { size: regex },
+      ];
     }
 
     const items = await AdminUniformItem.find(filter).sort({ createdAt: -1 }).limit(500).lean();
@@ -40,23 +124,47 @@ uniformsAdminRouter.get("/", async (req: Request, res: Response, next: NextFunct
 
 uniformsAdminRouter.post("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { name, category, size, availableQty = 0 } = req.body;
-    if (!name || !category || !size) {
+    const { category, subCategory = "", size, unitPrice = 0, availableQty = 0 } = req.body;
+    const cleanCategory = typeof category === "string" ? category.trim() : "";
+    const cleanSubCategory = typeof subCategory === "string" ? subCategory.trim() : String(subCategory ?? "").trim();
+    const cleanSize = typeof size === "string" ? size.trim() : String(size ?? "").trim();
+
+    if (!isValidUniformCategory(cleanCategory) || !cleanSize) {
       res.status(400).json({
         success: false,
-        message: "Required fields: name, category, size",
+        message: "Required fields: valid category and non-empty size",
       });
       return;
     }
 
-    const qty = Math.max(0, Number(availableQty) || 0);
+    const parsedUnitPrice = parseNonNegativeNumber(unitPrice, 0);
+    if (parsedUnitPrice === null) {
+      res.status(400).json({
+        success: false,
+        message: "unitPrice must be a non-negative number",
+      });
+      return;
+    }
+
+    const parsedQty = parseNonNegativeNumber(availableQty, 0);
+    if (parsedQty === null) {
+      res.status(400).json({
+        success: false,
+        message: "availableQty must be a non-negative number",
+      });
+      return;
+    }
+
+    const derivedName = deriveUniformItemName(cleanCategory, cleanSubCategory);
     const today = todayIso();
 
     const item = await AdminUniformItem.create({
-      name: String(name).trim(),
-      category,
-      size: String(size).trim(),
-      availableQty: qty,
+      name: derivedName,
+      category: cleanCategory,
+      subCategory: cleanSubCategory,
+      size: cleanSize,
+      unitPrice: parsedUnitPrice,
+      availableQty: parsedQty,
       issuedQty: 0,
       lastUpdated: today,
     });
@@ -64,14 +172,14 @@ uniformsAdminRouter.post("/", async (req: Request, res: Response, next: NextFunc
     await AdminUniformStockLog.create({
       itemName: item.name,
       action: "Added",
-      quantity: qty,
+      quantity: parsedQty,
       date: today,
       note: `Initial stock (${item.size})`,
     });
 
     await logAdminActivity(
       "Uniform item added",
-      `${item.name} (${qty} units) added to stock.`,
+      `${item.name} (${parsedQty} units) added to stock.`,
       "Uniforms"
     );
 
@@ -87,6 +195,12 @@ uniformsAdminRouter.post("/", async (req: Request, res: Response, next: NextFunc
 
 uniformsAdminRouter.patch("/:id/stock", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Uniform item not found" });
+      return;
+    }
+
     const { delta, note = "Manual stock update" } = req.body;
     const numericDelta = Number(delta);
     if (Number.isNaN(numericDelta)) {
@@ -94,7 +208,7 @@ uniformsAdminRouter.patch("/:id/stock", async (req: Request, res: Response, next
       return;
     }
 
-    const item = await AdminUniformItem.findById(getParamId(req));
+    const item = await AdminUniformItem.findById(id);
     if (!item) {
       res.status(404).json({ success: false, message: "Uniform item not found" });
       return;
@@ -130,16 +244,89 @@ uniformsAdminRouter.patch("/:id/stock", async (req: Request, res: Response, next
 
 uniformsAdminRouter.patch("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const updated = await AdminUniformItem.findByIdAndUpdate(
-      getParamId(req),
-      { $set: { ...stripMetaFields(req.body), lastUpdated: todayIso() } },
-      { new: true, runValidators: true }
-    );
-    if (!updated) {
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
       res.status(404).json({ success: false, message: "Uniform item not found" });
       return;
     }
-    res.json({ success: true, data: serializeDoc(updated) });
+
+    const item = await AdminUniformItem.findById(id);
+    if (!item) {
+      res.status(404).json({ success: false, message: "Uniform item not found" });
+      return;
+    }
+
+    const body = stripMetaFields(req.body);
+    const prevCategory = item.category;
+    const prevSubCategory = item.subCategory || "";
+    const prevUnitPrice = item.unitPrice ?? 0;
+
+    if (body.category !== undefined) {
+      const nextCategory = typeof body.category === "string" ? body.category.trim() : "";
+      if (!isValidUniformCategory(nextCategory)) {
+        res.status(400).json({
+          success: false,
+          message: "Invalid uniform category",
+        });
+        return;
+      }
+      item.category = nextCategory;
+    }
+
+    if (body.subCategory !== undefined) {
+      item.subCategory =
+        typeof body.subCategory === "string"
+          ? body.subCategory.trim()
+          : String(body.subCategory ?? "").trim();
+    }
+
+    if (body.size !== undefined) {
+      const nextSize = typeof body.size === "string" ? body.size.trim() : String(body.size ?? "").trim();
+      if (!nextSize) {
+        res.status(400).json({ success: false, message: "size cannot be empty" });
+        return;
+      }
+      item.size = nextSize;
+    }
+
+    if (body.unitPrice !== undefined) {
+      const nextPrice = parseNonNegativeNumber(body.unitPrice);
+      if (nextPrice === null) {
+        res.status(400).json({ success: false, message: "unitPrice must be a non-negative number" });
+        return;
+      }
+      item.unitPrice = nextPrice;
+    }
+
+    if (body.availableQty !== undefined) {
+      const nextQty = parseNonNegativeNumber(body.availableQty);
+      if (nextQty === null) {
+        res.status(400).json({ success: false, message: "availableQty must be a non-negative number" });
+        return;
+      }
+      item.availableQty = nextQty;
+    }
+
+    if (body.category !== undefined || body.subCategory !== undefined || !item.name) {
+      item.name = deriveUniformItemName(item.category, item.subCategory);
+    }
+
+    item.lastUpdated = todayIso();
+    await item.save();
+
+    if (
+      item.unitPrice !== prevUnitPrice ||
+      item.category !== prevCategory ||
+      (item.subCategory || "") !== prevSubCategory
+    ) {
+      await logAdminActivity(
+        "Uniform item updated",
+        `Updated ${item.name} (${item.category}, ₹${item.unitPrice}).`,
+        "Uniforms"
+      );
+    }
+
+    res.json({ success: true, data: serializeDoc(item) });
   } catch (err) {
     next(err);
   }
@@ -147,7 +334,13 @@ uniformsAdminRouter.patch("/:id", async (req: Request, res: Response, next: Next
 
 uniformsAdminRouter.delete("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const deleted = await AdminUniformItem.findByIdAndDelete(getParamId(req));
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Uniform item not found" });
+      return;
+    }
+
+    const deleted = await AdminUniformItem.findByIdAndDelete(id);
     if (!deleted) {
       res.status(404).json({ success: false, message: "Uniform item not found" });
       return;
@@ -173,12 +366,221 @@ uniformIssuesAdminRouter.get("/", async (req: Request, res: Response, next: Next
   }
 });
 
+uniformIssuesAdminRouter.post(
+  "/batch",
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const {
+        employeeId,
+        employeeName,
+        site,
+        issueDate,
+        registrationCharge = 0,
+        remarks = "",
+        items,
+      } = req.body;
+
+      const cleanEmployeeId = typeof employeeId === "string" ? employeeId.trim() : String(employeeId ?? "").trim();
+      const cleanEmployeeName = typeof employeeName === "string" ? employeeName.trim() : String(employeeName ?? "").trim();
+      const cleanSite = typeof site === "string" ? site.trim() : String(site ?? "").trim();
+      const cleanRemarks = typeof remarks === "string" ? remarks.trim() : String(remarks ?? "").trim();
+
+      if (!cleanEmployeeId || !cleanEmployeeName || !cleanSite || !Array.isArray(items) || items.length === 0) {
+        res.status(400).json({
+          success: false,
+          message: "Required fields: employeeId, employeeName, site, and a non-empty items array",
+        });
+        return;
+      }
+
+      const regCharge = parseNonNegativeNumber(registrationCharge, 0);
+      if (regCharge === null) {
+        res.status(400).json({
+          success: false,
+          message: "registrationCharge must be a non-negative number",
+        });
+        return;
+      }
+
+      const normalizedLines: IssueLineInput[] = [];
+      for (const rawLine of items) {
+        const lineItemId = typeof rawLine?.itemId === "string" ? rawLine.itemId.trim() : String(rawLine?.itemId ?? "").trim();
+        if (!lineItemId || !mongoose.Types.ObjectId.isValid(lineItemId)) {
+          res.status(400).json({
+            success: false,
+            message: "Each item must include a valid itemId",
+          });
+          return;
+        }
+
+        const qty = Number(rawLine?.quantity);
+        if (!Number.isInteger(qty) || qty < 1) {
+          res.status(400).json({
+            success: false,
+            message: "Each item must have an integer quantity >= 1",
+          });
+          return;
+        }
+
+        let parsedLinePrice: number | null = null;
+        if (rawLine?.unitPrice !== undefined) {
+          parsedLinePrice = parseNonNegativeNumber(rawLine.unitPrice);
+          if (parsedLinePrice === null) {
+            res.status(400).json({
+              success: false,
+              message: "Each item unitPrice must be a non-negative number",
+            });
+            return;
+          }
+        }
+
+        normalizedLines.push({
+          itemId: lineItemId,
+          quantity: qty,
+          unitPrice: parsedLinePrice,
+        });
+      }
+
+      // Aggregate quantities per itemId and validate all items & stock before mutating any stock
+      const requestedByItem = new Map<string, number>();
+      for (const line of normalizedLines) {
+        requestedByItem.set(line.itemId, (requestedByItem.get(line.itemId) ?? 0) + line.quantity);
+      }
+
+      const itemDocs = await AdminUniformItem.find({
+        _id: { $in: Array.from(requestedByItem.keys()) },
+      });
+      const itemMap = new Map<string, IAdminUniformItem>(
+        itemDocs.map((doc) => [String(doc._id), doc])
+      );
+
+      for (const [itemId, totalRequested] of requestedByItem.entries()) {
+        const item = itemMap.get(itemId);
+        if (!item) {
+          res.status(404).json({
+            success: false,
+            message: `Uniform item not found (${itemId})`,
+          });
+          return;
+        }
+        if (item.availableQty < totalRequested) {
+          const label = deriveUniformItemName(item.category, item.subCategory) || item.name;
+          res.status(400).json({
+            success: false,
+            message: `Insufficient stock for ${label} (${item.size}): available ${item.availableQty}, requested ${totalRequested}`,
+          });
+          return;
+        }
+      }
+
+      const today = todayIso();
+      const effectiveDate = issueDate && String(issueDate).trim() ? String(issueDate).trim() : today;
+      const updatedUniforms: IAdminUniformItem[] = [];
+      const appliedDeductions: Array<{ itemId: string; qty: number }> = [];
+
+      for (const [itemId, totalRequested] of requestedByItem.entries()) {
+        const updated = await AdminUniformItem.findOneAndUpdate(
+          { _id: itemId, availableQty: { $gte: totalRequested } },
+          {
+            $inc: { availableQty: -totalRequested, issuedQty: totalRequested },
+            $set: { lastUpdated: today },
+          },
+          { new: true }
+        );
+
+        if (!updated) {
+          await Promise.all(
+            appliedDeductions.map((d) =>
+              AdminUniformItem.findByIdAndUpdate(d.itemId, {
+                $inc: { availableQty: d.qty, issuedQty: -d.qty },
+              })
+            )
+          );
+          const item = itemMap.get(itemId)!;
+          const label = deriveUniformItemName(item.category, item.subCategory) || item.name;
+          res.status(409).json({
+            success: false,
+            message: `Insufficient stock for ${label} (${item.size})`,
+          });
+          return;
+        }
+
+        appliedDeductions.push({ itemId, qty: totalRequested });
+        updatedUniforms.push(updated);
+      }
+
+      const batchId = `BATCH-${Date.now().toString(36).toUpperCase()}-${Math.random()
+        .toString(36)
+        .slice(2, 6)
+        .toUpperCase()}`;
+
+      const builtPayloads = normalizedLines.map((line, index) => {
+        const item = itemMap.get(line.itemId)!;
+        const unitPrice = line.unitPrice !== null ? line.unitPrice : item.unitPrice ?? 0;
+        const lineRegCharge = index === 0 ? regCharge : 0;
+        return buildIssueRecordPayload({
+          batchId,
+          employeeId: cleanEmployeeId,
+          employeeName: cleanEmployeeName,
+          site: cleanSite,
+          item,
+          quantity: line.quantity,
+          unitPrice,
+          registrationCharge: lineRegCharge,
+          issueDate: effectiveDate,
+          remarks: cleanRemarks,
+        });
+      });
+
+      const createdIssues = await AdminUniformIssue.insertMany(
+        builtPayloads.map((p) => p.issue)
+      );
+      await AdminUniformStockLog.insertMany(builtPayloads.map((p) => p.stockLog));
+
+      await logAdminActivity(
+        "Uniform kit issued",
+        `Issued ${normalizedLines.length} item line(s) to ${cleanEmployeeName} (${cleanEmployeeId}).`,
+        "Uniforms"
+      );
+
+      res.status(201).json({
+        success: true,
+        message: "Uniform kit issued successfully",
+        data: {
+          issues: createdIssues.map(serializeDoc),
+          uniforms: updatedUniforms.map(serializeDoc),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
 uniformIssuesAdminRouter.post("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { employeeId, employeeName, site, itemId, quantity, issueDate } = req.body;
+    const {
+      employeeId,
+      employeeName,
+      site,
+      itemId,
+      quantity,
+      issueDate,
+      unitPrice,
+      registrationCharge = 0,
+      remarks = "",
+      batchId = "",
+    } = req.body;
+
+    const cleanEmployeeId = typeof employeeId === "string" ? employeeId.trim() : String(employeeId ?? "").trim();
+    const cleanEmployeeName = typeof employeeName === "string" ? employeeName.trim() : String(employeeName ?? "").trim();
+    const cleanSite = typeof site === "string" ? site.trim() : String(site ?? "").trim();
+    const cleanItemId = typeof itemId === "string" ? itemId.trim() : String(itemId ?? "").trim();
+    const cleanRemarks = typeof remarks === "string" ? remarks.trim() : String(remarks ?? "").trim();
+    const cleanBatchId = typeof batchId === "string" ? batchId.trim() : "";
     const qty = Number(quantity);
 
-    if (!employeeId || !employeeName || !site || !itemId || !qty || qty < 1) {
+    if (!cleanEmployeeId || !cleanEmployeeName || !cleanSite || !cleanItemId || !Number.isInteger(qty) || qty < 1) {
       res.status(400).json({
         success: false,
         message: "Required fields: employeeId, employeeName, site, itemId, quantity (>= 1)",
@@ -186,7 +588,33 @@ uniformIssuesAdminRouter.post("/", async (req: Request, res: Response, next: Nex
       return;
     }
 
-    const item = await AdminUniformItem.findById(itemId);
+    if (!mongoose.Types.ObjectId.isValid(cleanItemId)) {
+      res.status(404).json({ success: false, message: "Uniform item not found" });
+      return;
+    }
+
+    const parsedRegCharge = parseNonNegativeNumber(registrationCharge, 0);
+    if (parsedRegCharge === null) {
+      res.status(400).json({
+        success: false,
+        message: "registrationCharge must be a non-negative number",
+      });
+      return;
+    }
+
+    let parsedUnitPrice: number | null = null;
+    if (unitPrice !== undefined) {
+      parsedUnitPrice = parseNonNegativeNumber(unitPrice);
+      if (parsedUnitPrice === null) {
+        res.status(400).json({
+          success: false,
+          message: "unitPrice must be a non-negative number",
+        });
+        return;
+      }
+    }
+
+    const item = await AdminUniformItem.findById(cleanItemId);
     if (!item) {
       res.status(404).json({ success: false, message: "Uniform item not found" });
       return;
@@ -199,35 +627,46 @@ uniformIssuesAdminRouter.post("/", async (req: Request, res: Response, next: Nex
       return;
     }
 
-    const effectiveDate = issueDate ? String(issueDate).trim() : todayIso();
-    item.availableQty -= qty;
-    item.issuedQty += qty;
-    item.lastUpdated = todayIso();
-    await item.save();
+    const today = todayIso();
+    const effectiveDate = issueDate && String(issueDate).trim() ? String(issueDate).trim() : today;
 
-    const issue = await AdminUniformIssue.create({
-      employeeId: String(employeeId).trim(),
-      employeeName: String(employeeName).trim(),
-      site: String(site).trim(),
-      itemId: String(item._id),
-      itemName: item.name,
-      size: item.size,
+    const updatedItem = await AdminUniformItem.findOneAndUpdate(
+      { _id: cleanItemId, availableQty: { $gte: qty } },
+      {
+        $inc: { availableQty: -qty, issuedQty: qty },
+        $set: { lastUpdated: today },
+      },
+      { new: true }
+    );
+
+    if (!updatedItem) {
+      res.status(400).json({
+        success: false,
+        message: `Insufficient stock for ${item.name}`,
+      });
+      return;
+    }
+
+    const effectiveUnitPrice = parsedUnitPrice !== null ? parsedUnitPrice : updatedItem.unitPrice ?? 0;
+    const built = buildIssueRecordPayload({
+      batchId: cleanBatchId,
+      employeeId: cleanEmployeeId,
+      employeeName: cleanEmployeeName,
+      site: cleanSite,
+      item: updatedItem,
       quantity: qty,
+      unitPrice: effectiveUnitPrice,
+      registrationCharge: parsedRegCharge,
       issueDate: effectiveDate,
-      status: "Issued",
+      remarks: cleanRemarks,
     });
 
-    await AdminUniformStockLog.create({
-      itemName: item.name,
-      action: "Issued",
-      quantity: qty,
-      date: effectiveDate,
-      note: `Issued to ${issue.employeeName} (${issue.employeeId})`,
-    });
+    const issue = await AdminUniformIssue.create(built.issue);
+    await AdminUniformStockLog.create(built.stockLog);
 
     await logAdminActivity(
       "Uniform issued",
-      `${qty}× ${item.name} issued to ${issue.employeeName}.`,
+      `${qty}× ${issue.itemName} issued to ${issue.employeeName}.`,
       "Uniforms"
     );
 
@@ -243,7 +682,13 @@ uniformIssuesAdminRouter.post("/", async (req: Request, res: Response, next: Nex
 
 uniformIssuesAdminRouter.patch("/:id/return", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const issue = await AdminUniformIssue.findById(getParamId(req));
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Uniform issue record not found" });
+      return;
+    }
+
+    const issue = await AdminUniformIssue.findById(id);
     if (!issue) {
       res.status(404).json({ success: false, message: "Uniform issue record not found" });
       return;
@@ -258,12 +703,14 @@ uniformIssuesAdminRouter.patch("/:id/return", async (req: Request, res: Response
     issue.returnDate = today;
     await issue.save();
 
-    const item = await AdminUniformItem.findById(issue.itemId);
-    if (item) {
-      item.availableQty += issue.quantity;
-      item.issuedQty = Math.max(0, item.issuedQty - issue.quantity);
-      item.lastUpdated = today;
-      await item.save();
+    if (mongoose.Types.ObjectId.isValid(issue.itemId)) {
+      const item = await AdminUniformItem.findById(issue.itemId);
+      if (item) {
+        item.availableQty += issue.quantity;
+        item.issuedQty = Math.max(0, item.issuedQty - issue.quantity);
+        item.lastUpdated = today;
+        await item.save();
+      }
     }
 
     await AdminUniformStockLog.create({
