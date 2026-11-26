@@ -245,6 +245,7 @@ export const AdminUniformStockLog: Model<IAdminUniformStockLog> =
 // ─── Attendance ───────────────────────────────────────────────
 export const ATTENDANCE_STATUSES = [
   "Present",
+  "Double Duty",
   "Absent",
   "Half Day",
   "Leave",
@@ -263,15 +264,18 @@ export interface IAdminAttendance extends Document {
   checkOut: string;
   workingHours: string;
   status: AttendanceStatus;
+  normalDuty?: number;
+  extraDuty?: number;
+  remarks?: string;
   createdAt: Date;
   updatedAt: Date;
 }
 
 const AdminAttendanceSchema = new Schema<IAdminAttendance>(
   {
-    employeeId: { type: String, required: true, trim: true, index: true },
+    employeeId: { type: String, default: "", trim: true, index: true },
     employeeName: { type: String, required: true, trim: true },
-    designation: { type: String, required: true, trim: true },
+    designation: { type: String, required: true, default: "Security Guard", trim: true },
     location: { type: String, required: true, trim: true },
     date: { type: String, required: true, trim: true, index: true },
     checkIn: { type: String, default: "—", trim: true },
@@ -283,11 +287,15 @@ const AdminAttendanceSchema = new Schema<IAdminAttendance>(
       default: "Present",
       index: true,
     },
+    normalDuty: { type: Number, default: 0, min: 0, max: 2 },
+    extraDuty: { type: Number, default: 0, min: 0, max: 2 },
+    remarks: { type: String, default: "", trim: true, maxlength: 500 },
   },
   { timestamps: true, collection: "admin_attendance" }
 );
 
 AdminAttendanceSchema.index({ date: -1, employeeId: 1 });
+AdminAttendanceSchema.index({ location: 1, date: -1 });
 
 export const AdminAttendance: Model<IAdminAttendance> =
   mongoose.models.AdminAttendance ||

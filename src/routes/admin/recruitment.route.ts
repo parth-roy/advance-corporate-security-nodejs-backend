@@ -92,11 +92,25 @@ function normalizeIdentificationMarks(rawMark: unknown, rawMarks: unknown) {
 // ─── GET /api/admin/candidates ────────────────────────────────
 recruitmentAdminRouter.get("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { status, search } = req.query;
+    const { status, search, site, designation, fromDate, toDate } = req.query;
     const filter: Record<string, any> = {};
 
-    if (typeof status === "string" && status !== "All") {
-      filter.status = status;
+    if (typeof status === "string" && status.trim() && status !== "All") {
+      filter.status = status.trim();
+    }
+    if (typeof site === "string" && site.trim() && site !== "All") {
+      filter.location = site.trim();
+    }
+    if (typeof designation === "string" && designation.trim() && designation !== "All") {
+      filter.position = designation.trim();
+    }
+    const cleanFrom = typeof fromDate === "string" ? fromDate.trim() : "";
+    const cleanTo = typeof toDate === "string" ? toDate.trim() : "";
+    if (cleanFrom || cleanTo) {
+      const dateRange: Record<string, string> = {};
+      if (cleanFrom) dateRange.$gte = cleanFrom;
+      if (cleanTo) dateRange.$lte = cleanTo;
+      filter.applicationDate = dateRange;
     }
     if (typeof search === "string" && search.trim()) {
       const regex = new RegExp(escapeRegex(search.trim()), "i");

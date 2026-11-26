@@ -74,8 +74,8 @@ systemAdminRouter.get("/overview", async (_req: Request, res: Response, next: Ne
       AdminCandidate.find().sort({ createdAt: -1 }).limit(200).lean(),
       AdminUniformItem.find().sort({ createdAt: -1 }).limit(200).lean(),
       AdminUniformIssue.find().sort({ createdAt: -1 }).limit(200).lean(),
-      AdminUniformStockLog.find().sort({ createdAt: -1 }).limit(100).lean(),
-      AdminAttendance.find().sort({ date: -1, createdAt: -1 }).limit(500).lean(),
+      AdminUniformStockLog.find().sort({ createdAt: -1 }).limit(250).lean(),
+      AdminAttendance.find().sort({ date: -1, createdAt: -1 }).limit(2500).lean(),
       AdminStatutory.find().sort({ createdAt: -1 }).limit(200).lean(),
       AdminSalary.find().sort({ createdAt: -1 }).limit(200).lean(),
       AdminPayslip.find().sort({ createdAt: -1 }).limit(200).lean(),
@@ -208,7 +208,7 @@ systemAdminRouter.post(
 
       const [attendanceDoc, salaryDoc] = await Promise.all([
         AdminAttendance.create({
-          employeeId: employeeId.trim(),
+          employeeId: employeeId.trim().toUpperCase(),
           employeeName: name.trim(),
           designation: designation.trim(),
           location: location.trim(),
@@ -217,6 +217,8 @@ systemAdminRouter.post(
           checkOut: "16:00",
           workingHours: "8h 00m",
           status: "Present",
+          normalDuty: 1,
+          extraDuty: 0,
         }),
         AdminSalary.create({
           employeeId: employeeId.trim(),

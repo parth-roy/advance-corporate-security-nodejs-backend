@@ -203,7 +203,12 @@ uniformsAdminRouter.patch("/:id/stock", async (req: Request, res: Response, next
 
     const { delta, note = "Manual stock update" } = req.body;
     const numericDelta = Number(delta);
-    if (Number.isNaN(numericDelta)) {
+    if (
+      delta === undefined ||
+      delta === null ||
+      (typeof delta === "string" && delta.trim() === "") ||
+      !Number.isFinite(numericDelta)
+    ) {
       res.status(400).json({ success: false, message: "delta must be a valid number" });
       return;
     }
@@ -218,12 +223,15 @@ uniformsAdminRouter.patch("/:id/stock", async (req: Request, res: Response, next
     item.lastUpdated = todayIso();
     await item.save();
 
-    await AdminUniformStockLog.create({
+    const cleanNote =
+      (typeof note === "string" ? note.trim() : String(note ?? "").trim()) || "Manual stock update";
+
+    const stockLog = await AdminUniformStockLog.create({
       itemName: item.name,
       action: "Restocked",
       quantity: numericDelta,
       date: item.lastUpdated,
-      note: String(note).trim() || "Manual stock update",
+      note: cleanNote,
     });
 
     await logAdminActivity(
@@ -236,6 +244,7 @@ uniformsAdminRouter.patch("/:id/stock", async (req: Request, res: Response, next
       success: true,
       message: "Uniform stock updated successfully",
       data: serializeDoc(item),
+      stockLog: serializeDoc(stockLog),
     });
   } catch (err) {
     next(err);
@@ -535,7 +544,9 @@ uniformIssuesAdminRouter.post(
       const createdIssues = await AdminUniformIssue.insertMany(
         builtPayloads.map((p) => p.issue)
       );
-      await AdminUniformStockLog.insertMany(builtPayloads.map((p) => p.stockLog));
+      const createdStockLogs = await AdminUniformStockLog.insertMany(
+        builtPayloads.map((p) => p.stockLog)
+      );
 
       await logAdminActivity(
         "Uniform kit issued",
@@ -549,6 +560,7 @@ uniformIssuesAdminRouter.post(
         data: {
           issues: createdIssues.map(serializeDoc),
           uniforms: updatedUniforms.map(serializeDoc),
+          stockLogs: createdStockLogs.map(serializeDoc),
         },
       });
     } catch (err) {
@@ -703,17 +715,18 @@ uniformIssuesAdminRouter.patch("/:id/return", async (req: Request, res: Response
     issue.returnDate = today;
     await issue.save();
 
+    let updatedItem: IAdminUniformItem | null = null;
     if (mongoose.Types.ObjectId.isValid(issue.itemId)) {
       const item = await AdminUniformItem.findById(issue.itemId);
       if (item) {
         item.availableQty += issue.quantity;
         item.issuedQty = Math.max(0, item.issuedQty - issue.quantity);
         item.lastUpdated = today;
-        await item.save();
+        updatedItem = await item.save();
       }
     }
 
-    await AdminUniformStockLog.create({
+    const stockLog = await AdminUniformStockLog.create({
       itemName: issue.itemName,
       action: "Returned",
       quantity: issue.quantity,
@@ -730,7 +743,11 @@ uniformIssuesAdminRouter.patch("/:id/return", async (req: Request, res: Response
     res.json({
       success: true,
       message: "Uniform marked as returned",
-      data: serializeDoc(issue),
+      data: {
+        issue: serializeDoc(issue),
+        uniform: updatedItem ? serializeDoc(updatedItem) : null,
+        stockLog: serializeDoc(stockLog),
+      },
     });
   } catch (err) {
     next(err);
