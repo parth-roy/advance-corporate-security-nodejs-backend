@@ -12,6 +12,22 @@ export interface UniformCatalogSeedEntry {
   availableQty: number;
 }
 
+export const UNIFORM_MASTER_RATE_CARD: Record<UniformCategory, number> = {
+  Shirt: 450,
+  "T-Shirt": 285,
+  Pant: 460,
+  Belt: 120,
+  Shoe: 480,
+  Badge: 70,
+  Cap: 120,
+  "Lanyard + Whistle": 90,
+  "Safety Shoe": 570,
+  "Safety Gloves": 180,
+  Jacket: 550,
+  "Safety Helmet": 200,
+  "ID Card": 50,
+};
+
 export const UNIFORM_CATALOG_SEED: readonly UniformCatalogSeedEntry[] = [
   { category: "Shirt", subCategory: "Black Shirt", size: "L", unitPrice: 450, availableQty: 50 },
   { category: "Shirt", subCategory: "Blue Shirt", size: "L", unitPrice: 450, availableQty: 50 },
@@ -21,7 +37,7 @@ export const UNIFORM_CATALOG_SEED: readonly UniformCatalogSeedEntry[] = [
   { category: "Pant", subCategory: "Blue Pant", size: "32", unitPrice: 460, availableQty: 50 },
   { category: "Belt", subCategory: "", size: "Free", unitPrice: 120, availableQty: 60 },
   { category: "Shoe", subCategory: "", size: "8", unitPrice: 480, availableQty: 40 },
-  { category: "Badge", subCategory: "", size: "Std", unitPrice: 0, availableQty: 100 },
+  { category: "Badge", subCategory: "", size: "Std", unitPrice: 70, availableQty: 100 },
   { category: "Cap", subCategory: "", size: "Free", unitPrice: 120, availableQty: 60 },
   { category: "Lanyard + Whistle", subCategory: "", size: "Std", unitPrice: 90, availableQty: 80 },
   { category: "Safety Shoe", subCategory: "", size: "8", unitPrice: 570, availableQty: 30 },

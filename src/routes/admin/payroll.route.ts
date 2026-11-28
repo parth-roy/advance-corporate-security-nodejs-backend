@@ -1,5 +1,12 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { AdminPayslip, AdminSalary, AdminStatutory } from "../../models/admin/AdminFinance.model";
+import {
+  AdminPayslip,
+  AdminSalary,
+  AdminSalaryLineItem,
+  AdminStatutory,
+  SALARY_PAYOUT_STATUSES,
+  SalaryPayoutStatus,
+} from "../../models/admin/AdminFinance.model";
 import {
   escapeRegex,
   getParamId,
@@ -12,6 +19,126 @@ import {
 export const statutoryAdminRouter = Router();
 export const salariesAdminRouter = Router();
 export const payslipsAdminRouter = Router();
+
+// ─── Compliance Export (EPF ECR #~# & ESIC Challan) ──────────
+statutoryAdminRouter.get(
+  "/compliance-export",
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const monthKey = typeof req.query.monthKey === "string" ? req.query.monthKey.trim() : "";
+      const siteName = typeof req.query.siteName === "string" ? req.query.siteName.trim() : "";
+
+      const lineFilter: Record<string, any> = {};
+      if (monthKey && /^\d{4}-\d{2}$/.test(monthKey)) lineFilter.monthKey = monthKey;
+      if (siteName && siteName !== "All") lineFilter.siteName = new RegExp(`^${escapeRegex(siteName)}$`, "i");
+
+      const lineItems = await AdminSalaryLineItem.find(lineFilter).sort({ siteName: 1, employeeName: 1 }).lean();
+
+      const rows =
+        lineItems.length > 0
+          ? lineItems.map((l) => {
+              const epfEmp = Math.round(l.epfEmployee || 0);
+              const epsAmt = Math.round(Math.min(15000, l.epfWage || 0) * 0.0833);
+              const epfDiff = Math.max(0, epfEmp - epsAmt);
+              const esiEmp = Math.ceil(l.esiEmployee || 0);
+              const esiEmpr = Math.ceil(l.esiEmployer || 0);
+              return {
+                employeeId: l.employeeId,
+                employeeName: l.employeeName,
+                siteName: l.siteName,
+                uanNumber: l.uanNumber || "",
+                esiNumber: l.esiNumber || "",
+                daysPaid: Math.round((l.presentDays || 0) + (l.extraDays || 0)),
+                grossWages: Math.round(l.grossSalary || 0),
+                epfWages: Math.round(l.epfWage || 0),
+                epsWages: Math.round(Math.min(15000, l.epfWage || 0)),
+                edliWages: Math.round(Math.min(15000, l.epfWage || 0)),
+                epfEmployeeShare: epfEmp,
+                epsEmployerShare: epsAmt,
+                epfEpsDiffShare: epfDiff,
+                epfEmployerShare: Math.round(l.epfEmployer || 0),
+                esiWages: Math.round(l.esiWage || 0),
+                esiEmployeeShare: esiEmp,
+                esiEmployerShare: esiEmpr,
+                ncpDays: Math.max(0, (l.daysInMonth || 30) - Math.round(l.presentDays || 0)),
+              };
+            })
+          : (
+              await AdminStatutory.find({
+                ...(siteName && siteName !== "All"
+                  ? { location: new RegExp(`^${escapeRegex(siteName)}$`, "i") }
+                  : {}),
+              })
+                .limit(500)
+                .lean()
+            ).map((s) => {
+              const epfEmp = Math.round(s.pfEmployeeShare || 0);
+              const epsAmt = Math.round(epfEmp * (8.33 / 12));
+              return {
+                employeeId: s.employeeId,
+                employeeName: s.employeeName,
+                siteName: s.location,
+                uanNumber: s.uanNumber || "",
+                esiNumber: s.esiNumber || "",
+                daysPaid: 26,
+                grossWages: Math.round(s.basicSalary || 0),
+                epfWages: Math.round(s.basicSalary || 0),
+                epsWages: Math.round(Math.min(15000, s.basicSalary || 0)),
+                edliWages: Math.round(Math.min(15000, s.basicSalary || 0)),
+                epfEmployeeShare: epfEmp,
+                epsEmployerShare: epsAmt,
+                epfEpsDiffShare: Math.max(0, epfEmp - epsAmt),
+                epfEmployerShare: Math.round(s.pfEmployerShare || 0),
+                esiWages: Math.round(s.basicSalary || 0),
+                esiEmployeeShare: Math.ceil(s.esiEmployeeShare || 0),
+                esiEmployerShare: Math.ceil(s.esiEmployerShare || 0),
+                ncpDays: 0,
+              };
+            });
+
+      const ecrLines = rows
+        .filter((r) => r.epfEmployeeShare > 0 || r.uanNumber)
+        .map((r) =>
+          [
+            r.uanNumber || "UNREGISTERED",
+            r.employeeName,
+            r.grossWages,
+            r.epfWages,
+            r.epsWages,
+            r.edliWages,
+            r.epfEmployeeShare,
+            r.epsEmployerShare,
+            r.epfEpsDiffShare,
+            r.ncpDays,
+            0,
+          ].join("#~#")
+        );
+
+      const esicRows = rows.filter((r) => r.esiEmployeeShare > 0 || r.esiNumber);
+
+      res.json({
+        success: true,
+        data: {
+          monthKey: monthKey || "ALL",
+          siteName: siteName || "All",
+          source: lineItems.length > 0 ? "SALARY_LINE_ITEMS" : "STATUTORY_FALLBACK",
+          totals: {
+            epfMembers: ecrLines.length,
+            epfEmployeeTotal: rows.reduce((s, r) => s + r.epfEmployeeShare, 0),
+            epfEmployerTotal: rows.reduce((s, r) => s + r.epfEmployerShare, 0),
+            esicMembers: esicRows.length,
+            esiEmployeeTotal: esicRows.reduce((s, r) => s + r.esiEmployeeShare, 0),
+            esiEmployerTotal: esicRows.reduce((s, r) => s + r.esiEmployerShare, 0),
+          },
+          ecrText: ecrLines.join("\n"),
+          rows,
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 // ─── ESI & PF Statutory (/api/admin/statutory) ────────────────
 statutoryAdminRouter.get("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -253,6 +380,52 @@ salariesAdminRouter.patch("/:id/process", async (req: Request, res: Response, ne
       success: true,
       message: "Salary processed and payslip generated",
       data: { salary: serializeDoc(salary), payslip: serializeDoc(payslip) },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+salariesAdminRouter.patch("/:id/hold-status", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    const rawStatus = String(req.body?.payoutStatus || "").trim().toUpperCase();
+    if (!(SALARY_PAYOUT_STATUSES as readonly string[]).includes(rawStatus)) {
+      res.status(400).json({
+        success: false,
+        message: `payoutStatus must be one of: ${SALARY_PAYOUT_STATUSES.join(", ")}`,
+      });
+      return;
+    }
+
+    const salary = await AdminSalary.findById(getParamId(req));
+    if (!salary) {
+      res.status(404).json({ success: false, message: "Salary record not found" });
+      return;
+    }
+
+    salary.payoutStatus = rawStatus as SalaryPayoutStatus;
+    if (req.body?.holdReason !== undefined) {
+      salary.holdReason = String(req.body.holdReason || "").trim();
+    }
+    if (rawStatus === "HOLD" || rawStatus === "CHQ_HOLD") {
+      salary.status = "On Hold";
+    } else if (rawStatus === "PAID") {
+      salary.status = "Processed";
+    } else if (salary.status === "On Hold") {
+      salary.status = "Pending";
+    }
+
+    await salary.save();
+    await logAdminActivity(
+      "Salary payout status updated",
+      `${salary.employeeName} (${salary.month}) set to ${rawStatus}.`,
+      "Payroll"
+    );
+
+    res.json({
+      success: true,
+      message: "Salary payout status updated",
+      data: serializeDoc(salary),
     });
   } catch (err) {
     next(err);

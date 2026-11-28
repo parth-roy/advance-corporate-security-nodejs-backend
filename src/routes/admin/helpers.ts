@@ -26,6 +26,56 @@ export function stripMetaFields(body: Record<string, any>): Record<string, any> 
   return rest;
 }
 
+export interface PaginationParams {
+  page: number;
+  limit: number;
+  skip: number;
+}
+
+export interface PaginationMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+  hasNextPage: boolean;
+  hasPrevPage: boolean;
+}
+
+export function parsePaginationParams(
+  query: Record<string, any>,
+  defaultLimit = 25,
+  maxLimit = 200
+): PaginationParams {
+  const rawPage = Number(query?.page);
+  const rawLimit = Number(query?.limit);
+  const page = Number.isFinite(rawPage) && rawPage >= 1 ? Math.floor(rawPage) : 1;
+  const limit =
+    Number.isFinite(rawLimit) && rawLimit >= 1
+      ? Math.min(maxLimit, Math.floor(rawLimit))
+      : defaultLimit;
+  return {
+    page,
+    limit,
+    skip: (page - 1) * limit,
+  };
+}
+
+export function buildPaginationMeta(
+  page: number,
+  limit: number,
+  total: number
+): PaginationMeta {
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  return {
+    page,
+    limit,
+    total,
+    totalPages,
+    hasNextPage: page < totalPages,
+    hasPrevPage: page > 1,
+  };
+}
+
 export async function logAdminActivity(
   title: string,
   detail: string,

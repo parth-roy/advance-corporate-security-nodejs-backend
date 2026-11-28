@@ -1,10 +1,30 @@
 import { Router, Request, Response, NextFunction } from "express";
 import mongoose from "mongoose";
+import {
+  AdminEmployee,
+  EMPLOYEE_RATE_TYPES,
+  EmployeeRateType,
+} from "../../models/admin/AdminCore.model";
 import { AdminCandidate } from "../../models/admin/AdminOperations.model";
 import {
+  generateNextEmployeeCode,
+  isSyntheticEmployeeCode,
+  parseNumericRate,
+  resolveOrCreateSite,
+  sanitizeBankDetails,
+  sanitizeDocuments,
+  sanitizeFamilyMembers,
+} from "../../services/employeeCode.service";
+import {
+  handleDocumentMultipart,
+  processDocumentUpload,
+} from "../../services/upload.service";
+import {
+  buildPaginationMeta,
   escapeRegex,
   getParamId,
   logAdminActivity,
+  parsePaginationParams,
   serializeDoc,
   stripMetaFields,
   todayIso,
@@ -52,17 +72,6 @@ async function resolveValidatedEmployeeId(
   return { employeeId };
 }
 
-function sanitizeFamilyMembers(raw: unknown) {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((item) => ({
-      name: typeof item?.name === "string" ? item.name.trim() : "",
-      relation: typeof item?.relation === "string" ? item.relation.trim() : "",
-      dateOfBirth: typeof item?.dateOfBirth === "string" ? item.dateOfBirth.trim() : "",
-    }))
-    .filter((m) => m.name || m.relation || m.dateOfBirth);
-}
-
 function normalizeIdentificationMarks(rawMark: unknown, rawMarks: unknown) {
   const fromArray = Array.isArray(rawMarks)
     ? rawMarks.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean)
@@ -92,13 +101,15 @@ function normalizeIdentificationMarks(rawMark: unknown, rawMarks: unknown) {
 // ─── GET /api/admin/candidates ────────────────────────────────
 recruitmentAdminRouter.get("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { status, search, site, designation, fromDate, toDate } = req.query;
+    const { status, search, site, siteId, designation, fromDate, toDate } = req.query;
     const filter: Record<string, any> = {};
 
     if (typeof status === "string" && status.trim() && status !== "All") {
       filter.status = status.trim();
     }
-    if (typeof site === "string" && site.trim() && site !== "All") {
+    if (typeof siteId === "string" && mongoose.Types.ObjectId.isValid(siteId.trim())) {
+      filter.siteId = siteId.trim();
+    } else if (typeof site === "string" && site.trim() && site !== "All") {
       filter.location = site.trim();
     }
     if (typeof designation === "string" && designation.trim() && designation !== "All") {
@@ -124,6 +135,22 @@ recruitmentAdminRouter.get("/", async (req: Request, res: Response, next: NextFu
       ];
     }
 
+    const usePagination = req.query.page !== undefined || req.query.limit !== undefined;
+    if (usePagination) {
+      const { page, limit, skip } = parsePaginationParams(req.query, 25, 250);
+      const [candidates, total] = await Promise.all([
+        AdminCandidate.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+        AdminCandidate.countDocuments(filter),
+      ]);
+      res.json({
+        success: true,
+        count: candidates.length,
+        data: candidates.map(serializeDoc),
+        pagination: buildPaginationMeta(page, limit, total),
+      });
+      return;
+    }
+
     const candidates = await AdminCandidate.find(filter).sort({ createdAt: -1 }).limit(500).lean();
     res.json({
       success: true,
@@ -134,6 +161,19 @@ recruitmentAdminRouter.get("/", async (req: Request, res: Response, next: NextFu
     next(err);
   }
 });
+
+// ─── POST /api/admin/candidates/upload-document ────────────────
+recruitmentAdminRouter.post(
+  "/upload-document",
+  handleDocumentMultipart,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      await processDocumentUpload(req, res, "recruitment-docs");
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 // ─── GET /api/admin/candidates/:id ────────────────────────────
 recruitmentAdminRouter.get("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -216,16 +256,22 @@ recruitmentAdminRouter.post("/", async (req: Request, res: Response, next: NextF
       body.identificationMarks,
     );
 
+    const resolvedSite = await resolveOrCreateSite({
+      siteId: typeof body.siteId === "string" ? body.siteId : null,
+      siteName: String(location).trim(),
+    });
+
     const candidate = await AdminCandidate.create({
       ...body,
       employeeId: idCheck.employeeId,
+      siteId: resolvedSite?._id ?? null,
       fullName: String(fullName).trim(),
       mobile: cleanMobile,
       email: String(email).trim().toLowerCase(),
       position: String(position).trim(),
       identificationMark,
       identificationMarks,
-      location: String(location).trim(),
+      location: resolvedSite?.siteName || String(location).trim(),
       experience: String(experience).trim(),
       applicationDate: applicationDate ? String(applicationDate).trim() : todayIso(),
       status: status || "New",
@@ -233,6 +279,7 @@ recruitmentAdminRouter.post("/", async (req: Request, res: Response, next: NextF
       esiNumber: esiHolder === "Yes" ? String(esiNumber).trim() : "",
       uanNumber: esiHolder === "Yes" ? String(uanNumber).trim() : "",
       familyMembers: sanitizeFamilyMembers(body.familyMembers),
+      documents: sanitizeDocuments(body.documents),
       resumeName: String(resumeName).trim(),
       remarks: String(remarks).trim(),
     });
@@ -313,6 +360,10 @@ const updateCandidateHandler = async (req: Request, res: Response, next: NextFun
       updates.familyMembers = sanitizeFamilyMembers(updates.familyMembers);
     }
 
+    if (updates.documents !== undefined) {
+      updates.documents = sanitizeDocuments(updates.documents);
+    }
+
     if (updates.identificationMark !== undefined || updates.identificationMarks !== undefined) {
       const normalized = normalizeIdentificationMarks(
         updates.identificationMark,
@@ -320,6 +371,17 @@ const updateCandidateHandler = async (req: Request, res: Response, next: NextFun
       );
       updates.identificationMark = normalized.identificationMark;
       updates.identificationMarks = normalized.identificationMarks;
+    }
+
+    if (updates.location !== undefined || updates.siteId !== undefined) {
+      const resolvedSite = await resolveOrCreateSite({
+        siteId: typeof updates.siteId === "string" ? updates.siteId : null,
+        siteName: typeof updates.location === "string" ? updates.location.trim() : undefined,
+      });
+      if (resolvedSite) {
+        updates.siteId = resolvedSite._id;
+        updates.location = resolvedSite.siteName;
+      }
     }
 
     const candidate = await AdminCandidate.findByIdAndUpdate(
@@ -351,6 +413,171 @@ const updateCandidateHandler = async (req: Request, res: Response, next: NextFun
 
 recruitmentAdminRouter.patch("/:id", updateCandidateHandler);
 recruitmentAdminRouter.put("/:id", updateCandidateHandler);
+
+// ─── POST /api/admin/candidates/:id/deploy ────────────────────
+// Promotes an applicant candidate into a standalone deployed AdminEmployee linked to an AdminSite
+recruitmentAdminRouter.post(
+  "/:id/deploy",
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const candidateId = getParamId(req);
+      if (!mongoose.Types.ObjectId.isValid(candidateId)) {
+        res.status(404).json({ success: false, message: "Candidate not found" });
+        return;
+      }
+
+      const candidate = await AdminCandidate.findById(candidateId);
+      if (!candidate) {
+        res.status(404).json({ success: false, message: "Candidate not found" });
+        return;
+      }
+
+      const body = stripMetaFields(req.body);
+      const targetSiteName = String(body.siteName || body.location || candidate.location || "").trim();
+      const targetSiteId = typeof body.siteId === "string" ? body.siteId.trim() : "";
+
+      const siteDoc = await resolveOrCreateSite({
+        siteId: targetSiteId || (candidate.siteId ? String(candidate.siteId) : null),
+        siteName: targetSiteName,
+      });
+      if (!siteDoc) {
+        res.status(400).json({
+          success: false,
+          message: "Deployment site is required to promote a candidate to employee.",
+        });
+        return;
+      }
+
+      const designation = String(
+        body.designation || candidate.joiningAs || candidate.position || "Security Guard"
+      ).trim();
+
+      const rateTypeRaw = String(body.rateType || "").trim().toUpperCase();
+      const inferredRate =
+        body.baseRate !== undefined ? Number(body.baseRate) : parseNumericRate(candidate.salary);
+      const baseRate = Number.isFinite(inferredRate) && inferredRate >= 0 ? inferredRate : 0;
+      const rateType: EmployeeRateType = (EMPLOYEE_RATE_TYPES as readonly string[]).includes(rateTypeRaw)
+        ? (rateTypeRaw as EmployeeRateType)
+        : baseRate > 0 && baseRate < 2500
+          ? "DAILY"
+          : "MONTHLY";
+
+      // Resolve existing employee if candidate was already deployed, otherwise create new
+      let employee = candidate.convertedEmployeeObjectId
+        ? await AdminEmployee.findById(candidate.convertedEmployeeObjectId)
+        : null;
+
+      let requestedCode = String(body.empCode || candidate.employeeId || "").trim().toUpperCase();
+      if (requestedCode && isSyntheticEmployeeCode(requestedCode)) {
+        requestedCode = "";
+      }
+
+      if (!employee) {
+        const finalCode =
+          requestedCode ||
+          (await generateNextEmployeeCode({
+            designation,
+            year: String(body.dateOfJoining || candidate.dateOfJoining || candidate.applicationDate || "").slice(0, 4),
+          }));
+
+        const conflict = await AdminEmployee.findOne({ empCode: finalCode });
+        if (conflict && String(conflict.candidateId || "") !== String(candidate._id)) {
+          res.status(409).json({
+            success: false,
+            message: `Employee ID "${finalCode}" is already assigned to ${conflict.fullName}.`,
+          });
+          return;
+        }
+
+        employee =
+          conflict ||
+          (await AdminEmployee.create({
+            empCode: finalCode,
+            legacyEmpCode: String(body.legacyEmpCode || "").trim().toUpperCase(),
+            candidateId: candidate._id,
+            primarySiteId: siteDoc._id,
+            siteName: siteDoc.siteName,
+            subUnit: String(body.subUnit || "").trim(),
+            fullName: candidate.fullName,
+            fatherOrHusbandName: candidate.fatherOrHusbandName || "",
+            dateOfBirth: candidate.dateOfBirth || "",
+            permanentAddress: candidate.permanentAddress || "",
+            presentAddress: candidate.presentAddress || "",
+            maritalStatus: candidate.maritalStatus || "",
+            highestQualification: candidate.highestQualification || "",
+            mobile: candidate.mobile,
+            email: candidate.email || "",
+            designation,
+            serviceCategory: candidate.serviceCategory || "",
+            dateOfJoining: String(body.dateOfJoining || candidate.dateOfJoining || todayIso()).trim(),
+            rateType,
+            baseRate,
+            bankDetails: sanitizeBankDetails(body.bankDetails),
+            statutory: {
+              esiHolder: candidate.esiHolder || "",
+              esiNumber: candidate.esiNumber || candidate.documents?.previousEsiPf?.esiNumber || "",
+              pfUan: candidate.uanNumber || candidate.documents?.previousEsiPf?.pfNumber || "",
+            },
+            originalIdCustody: body.originalIdCustody
+              ? {
+                  documentType: String(body.originalIdCustody.documentType || "").trim(),
+                  referenceNo: String(body.originalIdCustody.referenceNo || "").trim(),
+                  depositedDate: String(body.originalIdCustody.depositedDate || "").trim(),
+                  inCustody: Boolean(body.originalIdCustody.inCustody),
+                  notes: String(body.originalIdCustody.notes || "").trim(),
+                }
+              : undefined,
+            nomineeName: candidate.nomineeName || "",
+            familyMembers: candidate.familyMembers || [],
+            documents: candidate.documents || {},
+            remarks: String(body.remarks ?? candidate.remarks ?? "").trim(),
+            status: "ACTIVE",
+          }));
+      } else {
+        employee.primarySiteId = siteDoc._id;
+        employee.siteName = siteDoc.siteName;
+        employee.designation = designation;
+        employee.baseRate = baseRate;
+        employee.rateType = rateType;
+        if (body.subUnit !== undefined) employee.subUnit = String(body.subUnit).trim();
+        if (body.legacyEmpCode !== undefined) {
+          employee.legacyEmpCode = String(body.legacyEmpCode).trim().toUpperCase();
+        }
+        if (body.dateOfJoining) employee.dateOfJoining = String(body.dateOfJoining).trim();
+        if (body.bankDetails) employee.bankDetails = sanitizeBankDetails(body.bankDetails);
+        await employee.save();
+      }
+
+      candidate.status = "Selected";
+      candidate.employeeId = employee.empCode;
+      candidate.siteId = siteDoc._id;
+      candidate.location = siteDoc.siteName;
+      candidate.joiningAs = designation;
+      candidate.dateOfJoining = employee.dateOfJoining;
+      candidate.convertedEmployeeObjectId = employee._id;
+      candidate.convertedAt = candidate.convertedAt || todayIso();
+      await candidate.save();
+
+      await logAdminActivity(
+        "Candidate deployed to site",
+        `${candidate.fullName} (${employee.empCode}) deployed to ${siteDoc.siteName}.`,
+        "Recruitment"
+      );
+
+      res.json({
+        success: true,
+        message: `${candidate.fullName} deployed as employee ${employee.empCode}`,
+        data: {
+          candidate: serializeDoc(candidate),
+          employee: serializeDoc(employee),
+          site: serializeDoc(siteDoc),
+        },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
 
 // ─── DELETE /api/admin/candidates/:id ─────────────────────────
 recruitmentAdminRouter.delete("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {

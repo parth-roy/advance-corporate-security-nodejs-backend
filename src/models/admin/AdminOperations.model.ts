@@ -1,16 +1,29 @@
 import mongoose, { Schema, Document, Model } from "mongoose";
+import {
+  CandidateDocumentsSchema,
+  FamilyMemberSchema,
+  IAcademicQualificationDocs,
+  ICandidateDocuments,
+  IFamilyMember,
+  IUploadedDocumentFile,
+  UploadedDocumentFileSchema,
+} from "./sharedSchemas";
+
+export type {
+  IAcademicQualificationDocs,
+  ICandidateDocuments,
+  IFamilyMember,
+  IUploadedDocumentFile,
+};
 
 // ─── Recruitment / Candidates ─────────────────────────────────
 export type CandidateStatus = "New" | "Shortlisted" | "Selected" | "Rejected";
 
-export interface IFamilyMember {
-  name: string;
-  relation: string;
-  dateOfBirth: string;
-}
-
 export interface IAdminCandidate extends Document {
   employeeId?: string;
+  siteId?: mongoose.Types.ObjectId | null;
+  convertedEmployeeObjectId?: mongoose.Types.ObjectId | null;
+  convertedAt?: string;
   fullName: string;
   fatherOrHusbandName?: string;
   dateOfBirth?: string;
@@ -40,6 +53,7 @@ export interface IAdminCandidate extends Document {
   esiNumber?: string;
   uanNumber?: string;
   familyMembers?: IFamilyMember[];
+  documents?: ICandidateDocuments;
   declarationAccepted?: boolean;
   declarationDate?: string;
   declarationPlace?: string;
@@ -50,18 +64,17 @@ export interface IAdminCandidate extends Document {
   updatedAt: Date;
 }
 
-const FamilyMemberSchema = new Schema<IFamilyMember>(
-  {
-    name: { type: String, trim: true, default: "" },
-    relation: { type: String, trim: true, default: "" },
-    dateOfBirth: { type: String, trim: true, default: "" },
-  },
-  { _id: false }
-);
-
 const AdminCandidateSchema = new Schema<IAdminCandidate>(
   {
     employeeId: { type: String, default: "", trim: true, uppercase: true, maxlength: 60, index: true },
+    siteId: { type: Schema.Types.ObjectId, ref: "AdminSite", default: null, index: true },
+    convertedEmployeeObjectId: {
+      type: Schema.Types.ObjectId,
+      ref: "AdminEmployee",
+      default: null,
+      index: true,
+    },
+    convertedAt: { type: String, default: "", trim: true },
     fullName: { type: String, required: true, trim: true, maxlength: 200 },
     fatherOrHusbandName: { type: String, trim: true, maxlength: 200 },
     dateOfBirth: { type: String, trim: true },
@@ -96,6 +109,7 @@ const AdminCandidateSchema = new Schema<IAdminCandidate>(
     esiNumber: { type: String, trim: true, maxlength: 100 },
     uanNumber: { type: String, trim: true, maxlength: 100 },
     familyMembers: [FamilyMemberSchema],
+    documents: { type: CandidateDocumentsSchema, default: {} },
     declarationAccepted: { type: Boolean, default: false },
     declarationDate: { type: String, trim: true },
     declarationPlace: { type: String, trim: true, maxlength: 150 },
@@ -163,10 +177,19 @@ export const AdminUniformItem: Model<IAdminUniformItem> =
   mongoose.model<IAdminUniformItem>("AdminUniformItem", AdminUniformItemSchema);
 
 // ─── Uniform Issue Records ────────────────────────────────────
+export const UNIFORM_ISSUE_MODES = ["INDIVIDUAL", "BULK_SITE"] as const;
+export type UniformIssueMode = (typeof UNIFORM_ISSUE_MODES)[number];
+
 export interface IAdminUniformIssue extends Document {
   batchId?: string;
+  issueMode: UniformIssueMode;
+  serialNo: string;
+  siteId?: mongoose.Types.ObjectId | null;
+  employeeObjectId?: mongoose.Types.ObjectId | null;
   employeeId: string;
+  legacyEmpCode: string;
   employeeName: string;
+  mobile: string;
   site: string;
   itemId: string;
   itemName: string;
@@ -174,11 +197,19 @@ export interface IAdminUniformIssue extends Document {
   subCategory?: string;
   size: string;
   quantity: number;
+  returnedQty: number;
+  returnedAmount: number;
   unitPrice: number;
   registrationCharge: number;
   totalAmount: number;
   issueDate: string;
   returnDate?: string;
+  issuedBy: string;
+  receivedBy: string;
+  verifiedBy: string;
+  originalDocHeld: string;
+  billToSite: boolean;
+  recoveryPlanId?: mongoose.Types.ObjectId | null;
   remarks?: string;
   status: "Issued" | "Returned";
   createdAt: Date;
@@ -188,29 +219,176 @@ export interface IAdminUniformIssue extends Document {
 const AdminUniformIssueSchema = new Schema<IAdminUniformIssue>(
   {
     batchId: { type: String, default: "", trim: true, index: true },
+    issueMode: { type: String, enum: UNIFORM_ISSUE_MODES, default: "INDIVIDUAL", index: true },
+    serialNo: { type: String, default: "", trim: true, maxlength: 60 },
+    siteId: { type: Schema.Types.ObjectId, ref: "AdminSite", default: null, index: true },
+    employeeObjectId: {
+      type: Schema.Types.ObjectId,
+      ref: "AdminEmployee",
+      default: null,
+      index: true,
+    },
     employeeId: { type: String, required: true, trim: true, index: true },
+    legacyEmpCode: { type: String, default: "", trim: true, maxlength: 60 },
     employeeName: { type: String, required: true, trim: true },
-    site: { type: String, required: true, trim: true },
+    mobile: { type: String, default: "", trim: true, maxlength: 30 },
+    site: { type: String, required: true, trim: true, index: true },
     itemId: { type: String, required: true, trim: true, index: true },
     itemName: { type: String, required: true, trim: true },
     category: { type: String, default: "", trim: true },
     subCategory: { type: String, default: "", trim: true },
     size: { type: String, required: true, trim: true },
     quantity: { type: Number, required: true, min: 1 },
+    returnedQty: { type: Number, default: 0, min: 0 },
+    returnedAmount: { type: Number, default: 0, min: 0 },
     unitPrice: { type: Number, default: 0, min: 0 },
     registrationCharge: { type: Number, default: 0, min: 0 },
     totalAmount: { type: Number, default: 0, min: 0 },
     issueDate: { type: String, required: true, trim: true },
     returnDate: { type: String, trim: true },
+    issuedBy: { type: String, default: "", trim: true, maxlength: 120 },
+    receivedBy: { type: String, default: "", trim: true, maxlength: 120 },
+    verifiedBy: { type: String, default: "", trim: true, maxlength: 120 },
+    originalDocHeld: { type: String, default: "", trim: true, maxlength: 200 },
+    billToSite: { type: Boolean, default: false },
+    recoveryPlanId: {
+      type: Schema.Types.ObjectId,
+      ref: "AdminUniformRecoveryPlan",
+      default: null,
+      index: true,
+    },
     remarks: { type: String, default: "", trim: true, maxlength: 500 },
     status: { type: String, enum: ["Issued", "Returned"], default: "Issued", index: true },
   },
   { timestamps: true, collection: "admin_uniform_issues" }
 );
 
+AdminUniformIssueSchema.index({ site: 1, issueDate: -1 });
+AdminUniformIssueSchema.index({ employeeId: 1, status: 1 });
+
 export const AdminUniformIssue: Model<IAdminUniformIssue> =
   mongoose.models.AdminUniformIssue ||
   mongoose.model<IAdminUniformIssue>("AdminUniformIssue", AdminUniformIssueSchema);
+
+// ─── Uniform Installment Recovery Plans (Dress Charge EMIs) ───
+export const UNIFORM_RECOVERY_MODES = [
+  "ONE_TIME",
+  "EMI_COUNT",
+  "FIXED_MONTHLY",
+  "NO_RECOVERY",
+] as const;
+export type UniformRecoveryMode = (typeof UNIFORM_RECOVERY_MODES)[number];
+
+export const UNIFORM_RECOVERY_STATUSES = [
+  "ACTIVE",
+  "PAUSED",
+  "SETTLED",
+  "CANCELLED",
+] as const;
+export type UniformRecoveryStatus = (typeof UNIFORM_RECOVERY_STATUSES)[number];
+
+export interface IUniformInstallmentEntry {
+  monthKey: string;
+  scheduledAmount: number;
+  deductedAmount: number;
+  balanceAfter: number;
+  source: "PAYROLL" | "MANUAL" | "RETURN_CREDIT";
+  note: string;
+  recordedAt: string;
+}
+
+export interface IAdminUniformRecoveryPlan extends Document {
+  batchId: string;
+  issueIds: string[];
+  employeeObjectId?: mongoose.Types.ObjectId | null;
+  employeeId: string;
+  legacyEmpCode: string;
+  employeeName: string;
+  siteId?: mongoose.Types.ObjectId | null;
+  siteName: string;
+  totalCharge: number;
+  recoveryMode: UniformRecoveryMode;
+  installmentCount: number;
+  monthlyAmount: number;
+  startMonth: string;
+  recoveredAmount: number;
+  creditedAmount: number;
+  remainingBalance: number;
+  status: UniformRecoveryStatus;
+  lastDeductedMonth: string;
+  installmentHistory: IUniformInstallmentEntry[];
+  remarks: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const UniformInstallmentEntrySchema = new Schema<IUniformInstallmentEntry>(
+  {
+    monthKey: { type: String, required: true, trim: true },
+    scheduledAmount: { type: Number, default: 0, min: 0 },
+    deductedAmount: { type: Number, default: 0, min: 0 },
+    balanceAfter: { type: Number, default: 0, min: 0 },
+    source: {
+      type: String,
+      enum: ["PAYROLL", "MANUAL", "RETURN_CREDIT"],
+      default: "PAYROLL",
+    },
+    note: { type: String, default: "", trim: true, maxlength: 300 },
+    recordedAt: { type: String, default: "", trim: true },
+  },
+  { _id: false }
+);
+
+const AdminUniformRecoveryPlanSchema = new Schema<IAdminUniformRecoveryPlan>(
+  {
+    batchId: { type: String, default: "", trim: true, index: true },
+    issueIds: [{ type: String, trim: true }],
+    employeeObjectId: {
+      type: Schema.Types.ObjectId,
+      ref: "AdminEmployee",
+      default: null,
+      index: true,
+    },
+    employeeId: { type: String, required: true, trim: true, uppercase: true, index: true },
+    legacyEmpCode: { type: String, default: "", trim: true, maxlength: 60 },
+    employeeName: { type: String, required: true, trim: true },
+    siteId: { type: Schema.Types.ObjectId, ref: "AdminSite", default: null, index: true },
+    siteName: { type: String, required: true, trim: true, index: true },
+    totalCharge: { type: Number, required: true, min: 0 },
+    recoveryMode: {
+      type: String,
+      enum: UNIFORM_RECOVERY_MODES,
+      default: "EMI_COUNT",
+    },
+    installmentCount: { type: Number, default: 1, min: 1, max: 36 },
+    monthlyAmount: { type: Number, required: true, min: 0 },
+    startMonth: { type: String, required: true, trim: true, index: true },
+    recoveredAmount: { type: Number, default: 0, min: 0 },
+    creditedAmount: { type: Number, default: 0, min: 0 },
+    remainingBalance: { type: Number, required: true, min: 0 },
+    status: {
+      type: String,
+      enum: UNIFORM_RECOVERY_STATUSES,
+      default: "ACTIVE",
+      index: true,
+    },
+    lastDeductedMonth: { type: String, default: "", trim: true },
+    installmentHistory: [UniformInstallmentEntrySchema],
+    remarks: { type: String, default: "", trim: true, maxlength: 500 },
+  },
+  { timestamps: true, collection: "admin_uniform_recovery_plans" }
+);
+
+AdminUniformRecoveryPlanSchema.index({ employeeId: 1, status: 1 });
+AdminUniformRecoveryPlanSchema.index({ employeeObjectId: 1, status: 1 });
+AdminUniformRecoveryPlanSchema.index({ startMonth: 1, status: 1 });
+
+export const AdminUniformRecoveryPlan: Model<IAdminUniformRecoveryPlan> =
+  mongoose.models.AdminUniformRecoveryPlan ||
+  mongoose.model<IAdminUniformRecoveryPlan>(
+    "AdminUniformRecoveryPlan",
+    AdminUniformRecoveryPlanSchema
+  );
 
 // ─── Uniform Stock Logs ───────────────────────────────────────
 export interface IAdminUniformStockLog extends Document {
@@ -250,22 +428,46 @@ export const ATTENDANCE_STATUSES = [
   "Half Day",
   "Leave",
   "Weekly Off",
+  "National Holiday",
 ] as const;
 
 export type AttendanceStatus = (typeof ATTENDANCE_STATUSES)[number];
 
+export const ATTENDANCE_DUTY_TYPES = [
+  "P",
+  "P/P",
+  "H",
+  "A",
+  "L",
+  "WO",
+  "NH",
+  "CUSTOM",
+] as const;
+
+export type AttendanceDutyType = (typeof ATTENDANCE_DUTY_TYPES)[number];
+
 export interface IAdminAttendance extends Document {
+  workSiteId?: mongoose.Types.ObjectId | null;
+  employeeObjectId?: mongoose.Types.ObjectId | null;
   employeeId: string;
   employeeName: string;
   designation: string;
   location: string;
   date: string;
+  monthKey: string;
   checkIn: string;
   checkOut: string;
   workingHours: string;
   status: AttendanceStatus;
+  dutyType: AttendanceDutyType;
+  shiftFraction: number;
   normalDuty?: number;
   extraDuty?: number;
+  otHours: number;
+  otDayEquivalent: number;
+  isReliever: boolean;
+  primarySiteName: string;
+  adjustmentNote: string;
   remarks?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -273,11 +475,24 @@ export interface IAdminAttendance extends Document {
 
 const AdminAttendanceSchema = new Schema<IAdminAttendance>(
   {
-    employeeId: { type: String, default: "", trim: true, index: true },
+    workSiteId: {
+      type: Schema.Types.ObjectId,
+      ref: "AdminSite",
+      default: null,
+      index: true,
+    },
+    employeeObjectId: {
+      type: Schema.Types.ObjectId,
+      ref: "AdminEmployee",
+      default: null,
+      index: true,
+    },
+    employeeId: { type: String, default: "", trim: true, uppercase: true, index: true },
     employeeName: { type: String, required: true, trim: true },
     designation: { type: String, required: true, default: "Security Guard", trim: true },
-    location: { type: String, required: true, trim: true },
+    location: { type: String, required: true, trim: true, index: true },
     date: { type: String, required: true, trim: true, index: true },
+    monthKey: { type: String, default: "", trim: true, index: true },
     checkIn: { type: String, default: "—", trim: true },
     checkOut: { type: String, default: "—", trim: true },
     workingHours: { type: String, default: "0h 00m", trim: true },
@@ -287,16 +502,97 @@ const AdminAttendanceSchema = new Schema<IAdminAttendance>(
       default: "Present",
       index: true,
     },
-    normalDuty: { type: Number, default: 0, min: 0, max: 2 },
-    extraDuty: { type: Number, default: 0, min: 0, max: 2 },
+    dutyType: {
+      type: String,
+      enum: ATTENDANCE_DUTY_TYPES,
+      default: "P",
+    },
+    shiftFraction: { type: Number, default: 1, min: 0, max: 3 },
+    normalDuty: { type: Number, default: 0, min: 0, max: 3 },
+    extraDuty: { type: Number, default: 0, min: 0, max: 3 },
+    otHours: { type: Number, default: 0, min: 0, max: 24 },
+    otDayEquivalent: { type: Number, default: 0, min: 0, max: 3 },
+    isReliever: { type: Boolean, default: false, index: true },
+    primarySiteName: { type: String, default: "", trim: true },
+    adjustmentNote: { type: String, default: "", trim: true, maxlength: 500 },
     remarks: { type: String, default: "", trim: true, maxlength: 500 },
   },
   { timestamps: true, collection: "admin_attendance" }
 );
 
 AdminAttendanceSchema.index({ date: -1, employeeId: 1 });
-AdminAttendanceSchema.index({ location: 1, date: -1 });
+AdminAttendanceSchema.index({ location: 1, monthKey: 1, date: 1 });
+AdminAttendanceSchema.index({ workSiteId: 1, monthKey: 1, employeeObjectId: 1 });
+AdminAttendanceSchema.index({ employeeObjectId: 1, monthKey: 1, date: 1 });
+AdminAttendanceSchema.index({ monthKey: 1, isReliever: 1 });
 
 export const AdminAttendance: Model<IAdminAttendance> =
   mongoose.models.AdminAttendance ||
   mongoose.model<IAdminAttendance>("AdminAttendance", AdminAttendanceSchema);
+
+// ─── Site Monthly Muster Roll Verification & Sign-Off ─────────
+export const MUSTER_VERIFICATION_STATUSES = [
+  "DRAFT",
+  "SUPERVISOR_SUBMITTED",
+  "CLIENT_VERIFIED",
+  "LOCKED_FOR_BILLING",
+] as const;
+
+export type MusterVerificationStatus = (typeof MUSTER_VERIFICATION_STATUSES)[number];
+
+export interface IAdminSiteMusterApproval extends Document {
+  siteId?: mongoose.Types.ObjectId | null;
+  siteName: string;
+  subUnit: string;
+  monthKey: string;
+  verificationStatus: MusterVerificationStatus;
+  verifiedByName: string;
+  verifiedByDesignation: string;
+  verifiedDate: string;
+  totalNormalDuty: number;
+  totalExtraDuty: number;
+  totalOtHours: number;
+  totalNhDays: number;
+  totalBillableDuties: number;
+  attachment?: IUploadedDocumentFile;
+  remarks: string;
+  lockedAt: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const AdminSiteMusterApprovalSchema = new Schema<IAdminSiteMusterApproval>(
+  {
+    siteId: { type: Schema.Types.ObjectId, ref: "AdminSite", default: null, index: true },
+    siteName: { type: String, required: true, trim: true, index: true },
+    subUnit: { type: String, default: "", trim: true },
+    monthKey: { type: String, required: true, trim: true, index: true },
+    verificationStatus: {
+      type: String,
+      enum: MUSTER_VERIFICATION_STATUSES,
+      default: "DRAFT",
+      index: true,
+    },
+    verifiedByName: { type: String, default: "", trim: true, maxlength: 160 },
+    verifiedByDesignation: { type: String, default: "", trim: true, maxlength: 160 },
+    verifiedDate: { type: String, default: "", trim: true, maxlength: 40 },
+    totalNormalDuty: { type: Number, default: 0, min: 0 },
+    totalExtraDuty: { type: Number, default: 0, min: 0 },
+    totalOtHours: { type: Number, default: 0, min: 0 },
+    totalNhDays: { type: Number, default: 0, min: 0 },
+    totalBillableDuties: { type: Number, default: 0, min: 0 },
+    attachment: { type: UploadedDocumentFileSchema },
+    remarks: { type: String, default: "", trim: true, maxlength: 1000 },
+    lockedAt: { type: String, default: "", trim: true, maxlength: 40 },
+  },
+  { timestamps: true, collection: "admin_site_muster_approvals" }
+);
+
+AdminSiteMusterApprovalSchema.index({ siteName: 1, monthKey: 1, subUnit: 1 }, { unique: true });
+
+export const AdminSiteMusterApproval: Model<IAdminSiteMusterApproval> =
+  mongoose.models.AdminSiteMusterApproval ||
+  mongoose.model<IAdminSiteMusterApproval>(
+    "AdminSiteMusterApproval",
+    AdminSiteMusterApprovalSchema
+  );
