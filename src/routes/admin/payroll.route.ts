@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
 import {
   AdminPayslip,
   AdminSalary,
@@ -169,7 +170,12 @@ statutoryAdminRouter.get("/", async (req: Request, res: Response, next: NextFunc
 
 statutoryAdminRouter.get("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const record = await AdminStatutory.findById(getParamId(req)).lean();
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Statutory record not found" });
+      return;
+    }
+    const record = await AdminStatutory.findById(id).lean();
     if (!record) {
       res.status(404).json({ success: false, message: "Statutory record not found" });
       return;
@@ -182,7 +188,8 @@ statutoryAdminRouter.get("/:id", async (req: Request, res: Response, next: NextF
 
 statutoryAdminRouter.post("/", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { employeeId, employeeName, designation, location, month, basicSalary } = req.body;
+    const body = stripMetaFields(req.body);
+    const { employeeId, employeeName, designation, location, month, basicSalary } = body;
     if (!employeeId || !employeeName || !designation || !location || !month || basicSalary === undefined) {
       res.status(400).json({
         success: false,
@@ -190,7 +197,7 @@ statutoryAdminRouter.post("/", async (req: Request, res: Response, next: NextFun
       });
       return;
     }
-    const created = await AdminStatutory.create(req.body);
+    const created = await AdminStatutory.create(body);
     res.status(201).json({ success: true, data: serializeDoc(created) });
   } catch (err) {
     next(err);
@@ -199,8 +206,13 @@ statutoryAdminRouter.post("/", async (req: Request, res: Response, next: NextFun
 
 statutoryAdminRouter.patch("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Statutory record not found" });
+      return;
+    }
     const updated = await AdminStatutory.findByIdAndUpdate(
-      getParamId(req),
+      id,
       { $set: stripMetaFields(req.body) },
       { new: true, runValidators: true }
     );
@@ -216,7 +228,12 @@ statutoryAdminRouter.patch("/:id", async (req: Request, res: Response, next: Nex
 
 statutoryAdminRouter.delete("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const deleted = await AdminStatutory.findByIdAndDelete(getParamId(req));
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Statutory record not found" });
+      return;
+    }
+    const deleted = await AdminStatutory.findByIdAndDelete(id);
     if (!deleted) {
       res.status(404).json({ success: false, message: "Statutory record not found" });
       return;
@@ -333,7 +350,12 @@ salariesAdminRouter.patch("/process-all", async (req: Request, res: Response, ne
 
 salariesAdminRouter.patch("/:id/process", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const salary = await AdminSalary.findById(getParamId(req));
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Salary record not found" });
+      return;
+    }
+    const salary = await AdminSalary.findById(id);
     if (!salary) {
       res.status(404).json({ success: false, message: "Salary record not found" });
       return;
@@ -397,7 +419,12 @@ salariesAdminRouter.patch("/:id/hold-status", async (req: Request, res: Response
       return;
     }
 
-    const salary = await AdminSalary.findById(getParamId(req));
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Salary record not found" });
+      return;
+    }
+    const salary = await AdminSalary.findById(id);
     if (!salary) {
       res.status(404).json({ success: false, message: "Salary record not found" });
       return;
@@ -434,8 +461,13 @@ salariesAdminRouter.patch("/:id/hold-status", async (req: Request, res: Response
 
 salariesAdminRouter.patch("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Salary record not found" });
+      return;
+    }
     const updated = await AdminSalary.findByIdAndUpdate(
-      getParamId(req),
+      id,
       { $set: stripMetaFields(req.body) },
       { new: true, runValidators: true }
     );
@@ -458,7 +490,12 @@ salariesAdminRouter.patch("/:id", async (req: Request, res: Response, next: Next
 
 salariesAdminRouter.delete("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const deleted = await AdminSalary.findByIdAndDelete(getParamId(req));
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Salary record not found" });
+      return;
+    }
+    const deleted = await AdminSalary.findByIdAndDelete(id);
     if (!deleted) {
       res.status(404).json({ success: false, message: "Salary record not found" });
       return;
@@ -506,8 +543,13 @@ payslipsAdminRouter.post("/", async (req: Request, res: Response, next: NextFunc
 
 payslipsAdminRouter.patch("/:id/regenerate", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Payslip not found" });
+      return;
+    }
     const slip = await AdminPayslip.findByIdAndUpdate(
-      getParamId(req),
+      id,
       { $set: { status: "Generated", generatedDate: todayIso() } },
       { new: true }
     );
@@ -534,7 +576,12 @@ payslipsAdminRouter.patch("/:id/regenerate", async (req: Request, res: Response,
 
 payslipsAdminRouter.delete("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const deleted = await AdminPayslip.findByIdAndDelete(getParamId(req));
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Payslip not found" });
+      return;
+    }
+    const deleted = await AdminPayslip.findByIdAndDelete(id);
     if (!deleted) {
       res.status(404).json({ success: false, message: "Payslip not found" });
       return;

@@ -178,7 +178,12 @@ recruitmentAdminRouter.post(
 // ─── GET /api/admin/candidates/:id ────────────────────────────
 recruitmentAdminRouter.get("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const candidate = await AdminCandidate.findById(getParamId(req)).lean();
+    const candidateId = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(candidateId)) {
+      res.status(404).json({ success: false, message: "Candidate not found" });
+      return;
+    }
+    const candidate = await AdminCandidate.findById(candidateId).lean();
     if (!candidate) {
       res.status(404).json({ success: false, message: "Candidate not found" });
       return;
@@ -582,7 +587,12 @@ recruitmentAdminRouter.post(
 // ─── DELETE /api/admin/candidates/:id ─────────────────────────
 recruitmentAdminRouter.delete("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const deleted = await AdminCandidate.findByIdAndDelete(getParamId(req));
+    const candidateId = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(candidateId)) {
+      res.status(404).json({ success: false, message: "Candidate not found" });
+      return;
+    }
+    const deleted = await AdminCandidate.findByIdAndDelete(candidateId);
     if (!deleted) {
       res.status(404).json({ success: false, message: "Candidate not found" });
       return;

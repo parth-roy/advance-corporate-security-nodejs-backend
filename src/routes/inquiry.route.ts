@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import mongoose from "mongoose";
 import { sendMail, buildEmailHtml } from "../utils/mailer";
 import { Inquiry, LIFECYCLE_STAGES, LifecycleStage } from "../models/Inquiry.model";
 import { appendToGoogleSheet } from "../utils/googleSheets";
@@ -273,7 +274,11 @@ inquiryRouter.get("/pipeline", async (_req: Request, res: Response, next: NextFu
 // ─── PATCH /api/inquiries/:id/stage (Lifecycle Stage Transition) ─────
 inquiryRouter.patch("/:id/stage", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { id } = req.params;
+    const id = String(req.params.id || "").trim();
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Inquiry / Opportunity not found" });
+      return;
+    }
     const {
       targetStage,
       changedBy = "operations_manager",
@@ -376,7 +381,12 @@ inquiryRouter.patch("/:id/stage", async (req: Request, res: Response, next: Next
 // ─── GET /api/inquiries/:id (Detailed Single Opportunity) ────────────
 inquiryRouter.get("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const inquiry = await Inquiry.findById(req.params.id);
+    const id = String(req.params.id || "").trim();
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Inquiry not found" });
+      return;
+    }
+    const inquiry = await Inquiry.findById(id);
     if (!inquiry) {
       res.status(404).json({ success: false, message: "Inquiry not found" });
       return;

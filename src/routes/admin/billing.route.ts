@@ -548,7 +548,12 @@ billingAdminRouter.get("/", async (req: Request, res: Response, next: NextFuncti
 // ─── GET /api/admin/invoices/:id ──────────────────────────────
 billingAdminRouter.get("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const invoice = await AdminInvoice.findById(getParamId(req)).lean();
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Invoice not found" });
+      return;
+    }
+    const invoice = await AdminInvoice.findById(id).lean();
     if (!invoice) {
       res.status(404).json({ success: false, message: "Invoice not found" });
       return;
@@ -742,7 +747,12 @@ billingAdminRouter.patch(
         });
         return;
       }
-      const invoice = await AdminInvoice.findById(getParamId(req));
+      const id = getParamId(req);
+      if (!mongoose.Types.ObjectId.isValid(id)) {
+        res.status(404).json({ success: false, message: "Invoice not found" });
+        return;
+      }
+      const invoice = await AdminInvoice.findById(id);
       if (!invoice) {
         res.status(404).json({ success: false, message: "Invoice not found" });
         return;
@@ -765,7 +775,12 @@ billingAdminRouter.patch(
 // ─── PATCH /api/admin/invoices/:id/mark-paid ──────────────────
 billingAdminRouter.patch("/:id/mark-paid", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const existing = await AdminInvoice.findById(getParamId(req));
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Invoice not found" });
+      return;
+    }
+    const existing = await AdminInvoice.findById(id);
     if (!existing) {
       res.status(404).json({ success: false, message: "Invoice not found" });
       return;
@@ -797,8 +812,13 @@ billingAdminRouter.patch("/:id/mark-paid", async (req: Request, res: Response, n
 // ─── PATCH / PUT /api/admin/invoices/:id ──────────────────────
 const updateInvoiceHandler = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Invoice not found" });
+      return;
+    }
     const updated = await AdminInvoice.findByIdAndUpdate(
-      getParamId(req),
+      id,
       { $set: stripMetaFields(req.body) },
       { new: true, runValidators: true }
     );
@@ -829,7 +849,12 @@ billingAdminRouter.put("/:id", updateInvoiceHandler);
 // ─── DELETE /api/admin/invoices/:id ───────────────────────────
 billingAdminRouter.delete("/:id", async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const deleted = await AdminInvoice.findByIdAndDelete(getParamId(req));
+    const id = getParamId(req);
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      res.status(404).json({ success: false, message: "Invoice not found" });
+      return;
+    }
+    const deleted = await AdminInvoice.findByIdAndDelete(id);
     if (!deleted) {
       res.status(404).json({ success: false, message: "Invoice not found" });
       return;

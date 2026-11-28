@@ -480,6 +480,11 @@ authAdminRouter.patch(
         resetPassword?: string;
       };
 
+      if (!/^[0-9a-fA-F]{24}$/.test(targetId)) {
+        res.status(404).json({ success: false, message: "Admin user not found." });
+        return;
+      }
+
       const user = await AdminUser.findById(targetId).select("+passwordHash");
       if (!user) {
         res.status(404).json({ success: false, message: "Admin user not found." });

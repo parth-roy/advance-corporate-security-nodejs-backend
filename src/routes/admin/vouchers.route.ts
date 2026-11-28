@@ -795,6 +795,16 @@ vouchersAdminRouter.patch("/:id", async (req: Request, res: Response, next: Next
           lineItem.voucherId = null;
           lineItem.voucherNo = null;
           await lineItem.save();
+
+          await AdminPayslip.findOneAndUpdate(
+            { employeeId: lineItem.employeeId, monthKey: lineItem.monthKey },
+            {
+              $set: {
+                payoutStatus: "HOLD",
+                voucherNo: null,
+              },
+            }
+          );
         }
       }
     }

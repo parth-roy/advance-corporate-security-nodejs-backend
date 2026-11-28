@@ -389,7 +389,97 @@ payrollRunsAdminRouter.post(
         }).lean(),
       ]);
 
-      // Group attendance per employeeCode / employeeName
+      // Build unified employee roster & alias lookup (empCode, legacyEmpCode, ObjectId, unique name)
+      const rosterMap = new Map<string, any>();
+      const aliasToCanon = new Map<string, string>();
+      const nameCounts = new Map<string, number>();
+      const nameToCanon = new Map<string, string>();
+
+      const registerEmployeeInRoster = (emp: any): string => {
+        const canon = String(emp.empCode || emp._id).trim().toUpperCase();
+        rosterMap.set(canon, emp);
+        aliasToCanon.set(canon, canon);
+        if (emp._id) aliasToCanon.set(String(emp._id), canon);
+        const leg = String(emp.legacyEmpCode || "").trim().toUpperCase();
+        if (leg && !aliasToCanon.has(leg)) aliasToCanon.set(leg, canon);
+        const nm = String(emp.fullName || "").trim().toLowerCase();
+        if (nm) {
+          const cnt = (nameCounts.get(nm) ?? 0) + 1;
+          nameCounts.set(nm, cnt);
+          if (cnt === 1) nameToCanon.set(nm, canon);
+          else nameToCanon.delete(nm);
+        }
+        return canon;
+      };
+
+      for (const emp of employees) {
+        registerEmployeeInRoster(emp);
+      }
+
+      // Look up any reliever / legacy-coded employees appearing in site attendance or manual overrides
+      const candidateObjIds = new Set<string>();
+      const candidateCodes = new Set<string>();
+      for (const att of attendanceDocs) {
+        if (att.employeeObjectId && !aliasToCanon.has(String(att.employeeObjectId))) {
+          candidateObjIds.add(String(att.employeeObjectId));
+        }
+        const rawCode = String(att.employeeId || "").trim().toUpperCase();
+        if (rawCode && !aliasToCanon.has(rawCode)) candidateCodes.add(rawCode);
+      }
+      if (Array.isArray(body.manualEntries)) {
+        for (const m of body.manualEntries) {
+          const rawCode = String(m?.employeeId || "").trim().toUpperCase();
+          if (rawCode && !aliasToCanon.has(rawCode)) candidateCodes.add(rawCode);
+        }
+      }
+      if (candidateObjIds.size > 0 || candidateCodes.size > 0) {
+        const extraEmps = await AdminEmployee.find({
+          $or: [
+            ...(candidateObjIds.size > 0
+              ? [{ _id: { $in: Array.from(candidateObjIds).filter((id) => mongoose.Types.ObjectId.isValid(id)) } }]
+              : []),
+            ...(candidateCodes.size > 0
+              ? [
+                  { empCode: { $in: Array.from(candidateCodes) } },
+                  { legacyEmpCode: { $in: Array.from(candidateCodes) } },
+                ]
+              : []),
+          ],
+        }).lean();
+        for (const emp of extraEmps) {
+          registerEmployeeInRoster(emp);
+        }
+      }
+
+      const resolveCanonicalKey = (
+        employeeObjectId?: unknown,
+        employeeId?: unknown,
+        legacyEmpCode?: unknown,
+        employeeName?: unknown
+      ): string => {
+        if (employeeObjectId) {
+          const mapped = aliasToCanon.get(String(employeeObjectId));
+          if (mapped) return mapped;
+        }
+        const rawId = String(employeeId || "").trim().toUpperCase();
+        if (rawId) {
+          const mapped = aliasToCanon.get(rawId);
+          if (mapped) return mapped;
+        }
+        const rawLeg = String(legacyEmpCode || "").trim().toUpperCase();
+        if (rawLeg) {
+          const mapped = aliasToCanon.get(rawLeg);
+          if (mapped) return mapped;
+        }
+        const rawName = String(employeeName || "").trim().toLowerCase();
+        if (rawName) {
+          const mapped = nameToCanon.get(rawName);
+          if (mapped) return mapped;
+        }
+        return rawId || rawLeg || rawName.toUpperCase();
+      };
+
+      // Group attendance per canonical employee key
       const attByEmp = new Map<
         string,
         {
@@ -406,7 +496,7 @@ payrollRunsAdminRouter.post(
       >();
 
       for (const att of attendanceDocs) {
-        const key = (att.employeeId || att.employeeName || "").trim().toUpperCase();
+        const key = resolveCanonicalKey(att.employeeObjectId, att.employeeId, undefined, att.employeeName);
         if (!key) continue;
         const curr = attByEmp.get(key) ?? {
           employeeId: att.employeeId || key,
@@ -433,25 +523,11 @@ payrollRunsAdminRouter.post(
         attByEmp.set(key, curr);
       }
 
-      // Build unified employee roster: primary site employees + any cross-site relievers in attendance + manualOverrides
       const manualMap = new Map<string, any>();
       if (Array.isArray(body.manualEntries)) {
         for (const m of body.manualEntries) {
-          const code = String(m.employeeId || m.employeeName || "").trim().toUpperCase();
+          const code = resolveCanonicalKey(m.employeeObjectId, m.employeeId, m.legacyEmpCode, m.employeeName);
           if (code) manualMap.set(code, m);
-        }
-      }
-
-      const rosterMap = new Map<string, any>();
-      for (const emp of employees) {
-        rosterMap.set(emp.empCode.toUpperCase(), emp);
-      }
-
-      const relieverCodes = Array.from(attByEmp.keys()).filter((k) => !rosterMap.has(k));
-      if (relieverCodes.length > 0) {
-        const relieverEmps = await AdminEmployee.find({ empCode: { $in: relieverCodes } }).lean();
-        for (const emp of relieverEmps) {
-          rosterMap.set(emp.empCode.toUpperCase(), emp);
         }
       }
 
@@ -460,20 +536,48 @@ payrollRunsAdminRouter.post(
           ? Number(body.defaultPresentDays)
           : 26;
 
-      // Index Uniform & Advance recoveries by empCode
+      // Index Uniform & Advance recoveries by canonical key (supporting ObjectId, empCode, legacyEmpCode)
       const uniformByEmp = new Map<string, typeof activeUniformPlans>();
       for (const plan of activeUniformPlans) {
-        const key = String(plan.employeeId || "").trim().toUpperCase();
+        const key = resolveCanonicalKey(
+          plan.employeeObjectId,
+          plan.employeeId,
+          plan.legacyEmpCode,
+          plan.employeeName
+        );
         if (!key) continue;
         uniformByEmp.set(key, [...(uniformByEmp.get(key) ?? []), plan]);
       }
 
       const advanceByEmp = new Map<string, typeof openAdvances>();
       for (const adv of openAdvances) {
-        const key = String(adv.employeeId || "").trim().toUpperCase();
+        const key = resolveCanonicalKey(
+          adv.employeeObjectId,
+          adv.employeeId,
+          adv.legacyEmpCode,
+          adv.employeeName
+        );
         if (!key) continue;
         advanceByEmp.set(key, [...(advanceByEmp.get(key) ?? []), adv]);
       }
+
+      const collectUniqueForEmp = <T extends { _id: unknown }>(
+        indexMap: Map<string, T[]>,
+        empKey: string,
+        emp: any
+      ): T[] => {
+        const lookupKeys = new Set<string>([empKey]);
+        if (emp?.empCode) lookupKeys.add(String(emp.empCode).trim().toUpperCase());
+        if (emp?.legacyEmpCode) lookupKeys.add(String(emp.legacyEmpCode).trim().toUpperCase());
+        if (emp?._id) lookupKeys.add(String(emp._id));
+        const byId = new Map<string, T>();
+        for (const k of lookupKeys) {
+          for (const item of indexMap.get(k) ?? []) {
+            byId.set(String(item._id), item);
+          }
+        }
+        return Array.from(byId.values());
+      };
 
       const runDoc =
         existingRun ||
@@ -530,7 +634,7 @@ payrollRunsAdminRouter.post(
 
         if (presentDays === 0 && extraDays === 0 && otHours === 0) continue;
 
-        const uPlans = uniformByEmp.get(empKey) ?? [];
+        const uPlans = collectUniqueForEmp(uniformByEmp, empKey, emp);
         const autoUniformDue = uPlans.reduce(
           (sum, p) => sum + Math.min(p.remainingBalance, p.monthlyAmount || p.remainingBalance),
           0
@@ -542,7 +646,7 @@ payrollRunsAdminRouter.post(
               ? Math.round(autoUniformDue * 100) / 100
               : 0;
 
-        const advList = advanceByEmp.get(empKey) ?? [];
+        const advList = collectUniqueForEmp(advanceByEmp, empKey, emp);
         const autoAdvanceDue = advList.reduce(
           (sum, a) =>
             sum +
@@ -696,6 +800,8 @@ payrollRunsAdminRouter.patch(
         body.extraDays !== undefined ||
         body.otHours !== undefined ||
         body.wageRate !== undefined ||
+        body.canteenDays !== undefined ||
+        body.fixedAllowanceOverride !== undefined ||
         body.arrearAddition !== undefined ||
         body.uniformDeduction !== undefined ||
         body.advanceDeduction !== undefined ||
@@ -710,6 +816,11 @@ payrollRunsAdminRouter.patch(
       }
 
       if (hasFormulaEdits) {
+        const prevUniformDed = line.uniformDeduction || 0;
+        const prevAdvanceDed = line.advanceDeduction || 0;
+        const totalUniformOutstanding = (line.uniformBalanceAfter || 0) + prevUniformDed;
+        const totalAdvanceOutstanding = (line.advanceBalanceAfter || 0) + prevAdvanceDed;
+
         if (body.presentDays !== undefined) line.presentDays = Math.max(0, Number(body.presentDays) || 0);
         if (body.extraDays !== undefined) line.extraDays = Math.max(0, Number(body.extraDays) || 0);
         if (body.otHours !== undefined) line.otHours = Math.max(0, Number(body.otHours) || 0);
@@ -719,11 +830,16 @@ payrollRunsAdminRouter.patch(
         if (body.advanceDeduction !== undefined) line.advanceDeduction = Math.max(0, Number(body.advanceDeduction) || 0);
         if (body.otherDeduction !== undefined) line.otherDeduction = Math.max(0, Number(body.otherDeduction) || 0);
 
-        const ruleProfile = await resolveSalaryRuleForSite({
-          siteId: line.siteId ? String(line.siteId) : null,
-          siteName: line.siteName,
-          ruleProfileId: line.ruleProfileId ? String(line.ruleProfileId) : null,
-        });
+        const [ruleProfile, empDoc] = await Promise.all([
+          resolveSalaryRuleForSite({
+            siteId: line.siteId ? String(line.siteId) : null,
+            siteName: line.siteName,
+            ruleProfileId: line.ruleProfileId ? String(line.ruleProfileId) : null,
+          }),
+          line.employeeObjectId
+            ? AdminEmployee.findById(line.employeeObjectId).select("statutory").lean()
+            : AdminEmployee.findOne({ empCode: line.employeeId }).select("statutory").lean(),
+        ]);
 
         const calc = calculateEmployeePayrollLine({
           rate: line.wageRate,
@@ -732,10 +848,15 @@ payrollRunsAdminRouter.patch(
           otHours: line.otHours,
           nhDays: line.nhDays,
           daysInMonth: line.daysInMonth,
+          canteenDays: body.canteenDays !== undefined ? Number(body.canteenDays) : undefined,
+          fixedAllowanceOverride:
+            body.fixedAllowanceOverride !== undefined ? Number(body.fixedAllowanceOverride) : undefined,
           arrearAddition: line.arrearAddition,
           advanceDeduction: line.advanceDeduction,
           uniformDeduction: line.uniformDeduction,
           otherDeduction: line.otherDeduction,
+          pfExemptEmployee: line.uanNumber === "EXEMPT" || empDoc?.statutory?.pfUan === "EXEMPT",
+          esiExemptEmployee: empDoc?.statutory?.esiHolder === "No",
           rule: ruleProfile as Partial<ISalaryRuleConfig>,
         });
 
@@ -758,6 +879,8 @@ payrollRunsAdminRouter.patch(
         line.adminCharge = calc.adminCharge;
         line.totalDeductions = calc.totalDeductions;
         line.netPay = calc.netPay;
+        line.uniformBalanceAfter = Math.max(0, Math.round((totalUniformOutstanding - calc.uniformDeduction) * 100) / 100);
+        line.advanceBalanceAfter = Math.max(0, Math.round((totalAdvanceOutstanding - calc.advanceDeduction) * 100) / 100);
         if (calc.factoryComponents) line.factoryComponents = calc.factoryComponents;
       }
 
