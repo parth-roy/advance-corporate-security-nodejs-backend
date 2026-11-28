@@ -183,3 +183,74 @@ export function parseCookies(cookieHeader?: string): Record<string, string> {
   }
   return result;
 }
+
+const DOC_VIEW_AUDIENCE = "acs-doc-view";
+
+export function signDocumentViewToken(
+  objectKey: string,
+  adminId: string,
+  ttlSeconds: number = 600
+): string {
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + Math.max(60, Math.min(3600, ttlSeconds));
+  const payload = base64UrlEncode(
+    JSON.stringify({
+      purpose: DOC_VIEW_AUDIENCE,
+      key: objectKey,
+      sub: adminId,
+      iss: JWT_ISSUER,
+      aud: DOC_VIEW_AUDIENCE,
+      iat: now,
+      exp,
+    })
+  );
+  const signature = crypto
+    .createHmac("sha256", getJwtSecret())
+    .update(`doc:${payload}`)
+    .digest("base64url");
+  return `${payload}.${signature}`;
+}
+
+export function verifyDocumentViewToken(
+  token: string,
+  expectedKey: string
+): { sub: string; key: string } | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 2) return null;
+    const [payloadB64, signatureB64] = parts;
+    if (!payloadB64 || !signatureB64) return null;
+
+    const expectedSig = crypto
+      .createHmac("sha256", getJwtSecret())
+      .update(`doc:${payloadB64}`)
+      .digest();
+    const actualSig = base64UrlDecode(signatureB64);
+    if (actualSig.length !== expectedSig.length) return null;
+    if (!crypto.timingSafeEqual(actualSig, expectedSig)) return null;
+
+    const payload = JSON.parse(base64UrlDecode(payloadB64).toString("utf8")) as {
+      purpose?: string;
+      key?: string;
+      sub?: string;
+      iss?: string;
+      aud?: string;
+      exp?: number;
+    };
+    const now = Math.floor(Date.now() / 1000);
+    if (
+      payload.purpose !== DOC_VIEW_AUDIENCE ||
+      payload.iss !== JWT_ISSUER ||
+      payload.aud !== DOC_VIEW_AUDIENCE ||
+      !payload.sub ||
+      payload.key !== expectedKey ||
+      typeof payload.exp !== "number" ||
+      payload.exp <= now
+    ) {
+      return null;
+    }
+    return { sub: payload.sub, key: payload.key };
+  } catch {
+    return null;
+  }
+}

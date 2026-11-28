@@ -26,14 +26,24 @@ import { advancesAdminRouter, vouchersAdminRouter } from "./admin/vouchers.route
 import { employeesAdminRouter } from "./admin/employees.route";
 import { sitesAdminRouter } from "./admin/sites.route";
 import { systemAdminRouter } from "./admin/system.route";
+import {
+  documentsProtectedRouter,
+  documentsPublicAccessRouter,
+} from "./admin/documents.route";
 
 export const adminRouter = Router();
 
 // Authentication routes (/api/admin/auth/login, /logout, /me, /change-password, /users)
 adminRouter.use("/auth", authAdminRouter);
 
+// Authenticated/Signed private document stream (/api/admin/documents/file?key=...&sig=...)
+adminRouter.use("/documents", documentsPublicAccessRouter);
+
 // Protect all Admin Table & System routes behind DB-backed JWT authentication
 adminRouter.use(requireAdminAuth);
+
+// Signed URL minting endpoint for private Cloudflare R2 files (/api/admin/documents/sign)
+adminRouter.use("/documents", documentsProtectedRouter);
 
 // Core Admin system & overview routes (/api/admin/health, /overview, /activities, /settings)
 adminRouter.use("/", systemAdminRouter);

@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import multer from "multer";
-import { isObjectStorageConfigured, uploadToSpaces } from "../utils/spaces";
+import { isObjectStorageConfigured, uploadObjectToStorage } from "../utils/spaces";
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_INLINE_FALLBACK_BYTES = 2 * 1024 * 1024;
@@ -62,9 +62,19 @@ export async function processDocumentUpload(
 
   const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_") || "document";
   let fileUrl: string;
+  let objectKey: string | undefined;
 
   if (isObjectStorageConfigured()) {
-    fileUrl = await uploadToSpaces(file.buffer, safeName, file.mimetype, folder);
+    const stored = await uploadObjectToStorage(file.buffer, safeName, file.mimetype, folder);
+    objectKey = stored.key;
+    if (stored.isPrivate) {
+      const configuredBase = (process.env.API_PUBLIC_URL || "").trim().replace(/\/+$/, "");
+      const host = req.get("host");
+      const reqBase = configuredBase || (host ? `${req.protocol}://${host}` : "");
+      fileUrl = `${reqBase}${stored.fileUrl}`;
+    } else {
+      fileUrl = stored.fileUrl;
+    }
   } else {
     if (file.buffer.length > MAX_INLINE_FALLBACK_BYTES) {
       res.status(500).json({
@@ -82,6 +92,7 @@ export async function processDocumentUpload(
     data: {
       fileName: file.originalname,
       fileUrl,
+      ...(objectKey ? { objectKey } : {}),
       mimeType: file.mimetype,
       size: file.size,
       uploadedAt: new Date().toISOString(),
