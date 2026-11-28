@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import multer from "multer";
-import { uploadToSpaces } from "../utils/spaces";
+import { isObjectStorageConfigured, uploadToSpaces } from "../utils/spaces";
 
 const MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024;
 const MAX_INLINE_FALLBACK_BYTES = 2 * 1024 * 1024;
@@ -63,7 +63,7 @@ export async function processDocumentUpload(
   const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_") || "document";
   let fileUrl: string;
 
-  if (process.env.DO_SPACES_ACCESS_KEY && process.env.DO_SPACES_SECRET_KEY) {
+  if (isObjectStorageConfigured()) {
     fileUrl = await uploadToSpaces(file.buffer, safeName, file.mimetype, folder);
   } else {
     if (file.buffer.length > MAX_INLINE_FALLBACK_BYTES) {
